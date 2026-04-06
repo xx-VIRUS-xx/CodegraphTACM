@@ -178,36 +178,38 @@ def _knapsack(candidates: list[ScoredNode], budget: int, strategy: Strategy) -> 
 
     Scores are scaled to integers (×1000) for the DP table.
     Items whose cost exceeds the budget are excluded upfront.
+
+    Uses full 2D DP table for correct backtracking. At n<=200 items and
+    budget<=32000, the table is <=6.4M cells — trivially fast (<50ms).
+    The 1D rolling-array approach cannot backtrack correctly when multiple
+    items share the same (cost, value), producing wrong selections.
     """
     items = [(n, _effective_cost(n, strategy)) for n in candidates if _effective_cost(n, strategy) <= budget]
     if not items:
         return []
 
     n = len(items)
-    # Scale scores to integers (DP requires integer values)
     int_scores = [round(node.score * 1000) for node, _ in items]
     costs = [cost for _, cost in items]
 
-    # dp[i][w] = max total int_score using first i items with weight <= w
-    # Use 1-D rolling array to save memory
-    dp = [0] * (budget + 1)
-    for i in range(n):
-        w_i = costs[i]
-        v_i = int_scores[i]
-        for w in range(budget, w_i - 1, -1):
-            dp[w] = max(dp[w], dp[w - w_i] + v_i)
+    # Full 2D table: dp[i][w] = max score using items 0..i-1 with capacity w
+    dp = [[0] * (budget + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        w_i = costs[i - 1]
+        v_i = int_scores[i - 1]
+        for w in range(budget + 1):
+            dp[i][w] = dp[i - 1][w]
+            if w >= w_i:
+                dp[i][w] = max(dp[i][w], dp[i - 1][w - w_i] + v_i)
 
-    # Backtrack to find which items were selected
+    # Backtrack
     selected_nodes: list[ScoredNode] = []
     w = budget
-    for i in range(n - 1, -1, -1):
-        w_i = costs[i]
-        v_i = int_scores[i]
-        if w >= w_i and dp[w] == dp[w - w_i] + v_i:
-            selected_nodes.append(items[i][0])
-            w -= w_i
+    for i in range(n, 0, -1):
+        if dp[i][w] != dp[i - 1][w]:
+            selected_nodes.append(items[i - 1][0])
+            w -= costs[i - 1]
 
-    # Return in score-descending order
     selected_nodes.sort(key=lambda n: n.score, reverse=True)
     return selected_nodes
 
