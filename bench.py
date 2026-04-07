@@ -24,7 +24,7 @@ from tacm.resolver import ScoredNode, resolve, Strategy
 
 REPO_ROOT = Path(__file__).parent / "requests"
 TOKEN_BUDGET = 4000   # realistic budget for actual LLM context usage
-BUDGETS_TO_TEST = [800, 2000, 4000]
+BUDGETS_TO_TEST = [800, 2000, 4000, 100000]
 
 
 # ---------------------------------------------------------------------------
@@ -240,14 +240,20 @@ def run_benchmark():
             return f"{v:.1f}%"
         return f"{v:.4f}" if v < 10 else f"{v:.1f}"
 
-    # Pre-fetch candidates once (hybrid_search is the expensive step)
-    print("Pre-fetching candidates for all queries...")
-    candidates_cache: dict[str, list] = {}
+    # Pre-fetch candidates at each budget level.
+    # At budget >= 8k, query_to_scored_nodes returns the full corpus instead
+    # of FTS5 top-80 — so candidate sets differ by budget.
+    print("Pre-fetching candidates for all queries × budgets...")
+    # candidates_cache[budget][bug_id] = nodes
+    candidates_cache: dict[int, dict[str, list]] = {}
     gt_absolutes: list[str] = []
     for bug in BUGS:
         gt_absolutes.append(_abs_gt(root, bug["ground_truth"]))
-        nodes = query_to_scored_nodes(store, bug["query"], root, max_candidates=80)
-        candidates_cache[bug["id"]] = nodes
+    for budget in BUDGETS_TO_TEST:
+        candidates_cache[budget] = {}
+        for bug in BUGS:
+            nodes = query_to_scored_nodes(store, bug["query"], root, max_candidates=80, token_budget=budget)
+            candidates_cache[budget][bug["id"]] = nodes
     store.close()
 
     for budget in BUDGETS_TO_TEST:
@@ -268,7 +274,7 @@ def run_benchmark():
         store2, _ = open_store(REPO_ROOT)
         for i, bug in enumerate(BUGS):
             gt_abs = gt_absolutes[i]
-            nodes = candidates_cache[bug["id"]]
+            nodes = candidates_cache[budget][bug["id"]]
 
             naive = naive_rag_retrieve(store2, root, bug["query"], bug["ground_truth"], budget)
             naive_ranks.append(naive.rank)

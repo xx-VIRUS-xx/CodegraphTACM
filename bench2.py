@@ -21,7 +21,7 @@ from tacm.resolver import ScoredNode, resolve, Strategy
 
 REPO_ROOT = Path(__file__).parent / "flask"
 TOKEN_BUDGET = 4000
-BUDGETS_TO_TEST = [800, 2000, 4000, 8000, 16000, 32000]
+BUDGETS_TO_TEST = [800, 2000, 4000, 8000, 16000, 32000, 100000]
 
 # ---------------------------------------------------------------------------
 # Ground truth — 10 real pallets/flask bugs with known fix locations.
@@ -78,9 +78,8 @@ BUGS: list[dict] = [
         "id": "fbug07",
         "desc": "Subdomain matching disabled but subdomains still matched",
         "query": "routes with subdomains still match requests when subdomain matching is turned off in config",
-        "ground_truth": "src/flask/app.py::Flask.make_response",
-        # fix: 4995a77 — subdomain_matching=False did not propagate to url_map
-        # Note: actual fix is in Flask.wsgi_app / url_map config; make_response is proxy
+        "ground_truth": "src/flask/app.py::Flask.create_url_adapter",
+        # fix: 4995a77 — subdomain_matching=False logic wrong in create_url_adapter
     },
     {
         "id": "fbug08",
@@ -170,66 +169,75 @@ def run_benchmark():
     store, root = open_store(REPO_ROOT)
     print(f"Repo: {root}")
 
-    # Pre-fetch candidates once
-    print("Pre-fetching candidates for all queries...")
-    candidates_cache: dict[str, list] = {}
+    # Pre-fetch candidates per budget (at budget >= 8k, full corpus is returned)
+    print("Pre-fetching candidates for all queries × budgets...")
+    candidates_cache: dict[int, dict[str, list]] = {}
     gt_absolutes: list[str] = []
     for bug in BUGS:
         gt_absolutes.append(_abs_gt(root, bug["ground_truth"]))
-        nodes = query_to_scored_nodes(store, bug["query"], root, max_candidates=80)
-        candidates_cache[bug["id"]] = nodes
+    for budget in BUDGETS_TO_TEST:
+        candidates_cache[budget] = {}
+        for bug in BUGS:
+            nodes = query_to_scored_nodes(store, bug["query"], root, max_candidates=80, token_budget=budget)
+            candidates_cache[budget][bug["id"]] = nodes
     store.close()
 
-    print(f"\n{'Budget':>7}  {'N-GT%':>6}  {'T-GT%':>6}  {'N-MRR':>7}  {'T-MRR':>7}  {'delta':>7}  {'TokSaved':>9}  Winner")
-    print("-" * 70)
+    print(f"\n{'Budget':>7}  {'N-GT%':>6}  {'S-GT%':>6}  {'HG-GT%':>7}  {'HK-GT%':>7}  {'N-MRR':>7}  {'S-MRR':>7}  {'HG-MRR':>8}  {'HK-MRR':>8}")
+    print("-" * 90)
 
     for budget in BUDGETS_TO_TEST:
         store2, _ = open_store(REPO_ROOT)
         naive_ranks, naive_tokens = [], []
-        tacm_ranks, tacm_tokens = [], []
+        s_ranks, s_tokens = [], []
+        hg_ranks, hg_tokens = [], []
+        hk_ranks, hk_tokens = [], []
 
         for i, bug in enumerate(BUGS):
             gt_abs = gt_absolutes[i]
 
             # Naive RAG
-            sel_names, tok, rank = naive_rag_retrieve(store2, root, bug["query"], bug["ground_truth"], budget)
-            naive_ranks.append(rank)
-            naive_tokens.append(tok)
+            _, tok, rank = naive_rag_retrieve(store2, root, bug["query"], bug["ground_truth"], budget)
+            naive_ranks.append(rank); naive_tokens.append(tok)
 
-            # TACM hybrid_full + knapsack
-            nodes = candidates_cache[bug["id"]]
-            selected = resolve(nodes, budget, strategy="hybrid_full", use_knapsack=True)
-            sel_qns = [n.node_id for n in selected]
-            tok2 = sum(n.token_cost for n in selected)
-            rank2 = next((j + 1 for j, n in enumerate(selected) if n.node_id == gt_abs), None)
-            tacm_ranks.append(rank2)
-            tacm_tokens.append(tok2)
+            nodes = candidates_cache[budget][bug["id"]]
+
+            # Structural + knapsack
+            sel = resolve(nodes, budget, strategy="structural", use_knapsack=True)
+            s_ranks.append(next((j+1 for j,n in enumerate(sel) if n.node_id==gt_abs), None))
+            s_tokens.append(sum(n.token_cost for n in sel))
+
+            # Hybrid-Greedy
+            sel = resolve(nodes, budget, strategy="hybrid_full", use_knapsack=False)
+            hg_ranks.append(next((j+1 for j,n in enumerate(sel) if n.node_id==gt_abs), None))
+            hg_tokens.append(sum(n.token_cost for n in sel))
+
+            # Hybrid-KS
+            sel = resolve(nodes, budget, strategy="hybrid_full", use_knapsack=True)
+            hk_ranks.append(next((j+1 for j,n in enumerate(sel) if n.node_id==gt_abs), None))
+            hk_tokens.append(sum(n.token_cost for n in sel))
 
         store2.close()
 
-        n_mrr = mrr(naive_ranks)
-        t_mrr = mrr(tacm_ranks)
-        n_gt = gt_present_pct(naive_ranks)
-        t_gt = gt_present_pct(tacm_ranks)
-        delta = t_mrr - n_mrr
-        tok_saved = int(avg_tokens(naive_tokens) - avg_tokens(tacm_tokens))
-        winner = "TACM" if t_mrr > n_mrr else "Naive"
-        print(f"{budget:>7}  {n_gt:>5.0f}%  {t_gt:>5.0f}%  {n_mrr:>7.4f}  {t_mrr:>7.4f}  {delta:>+7.4f}  {tok_saved:>+9}  {winner}")
+        print(f"{budget:>7}  {gt_present_pct(naive_ranks):>5.0f}%  {gt_present_pct(s_ranks):>5.0f}%  "
+              f"{gt_present_pct(hg_ranks):>6.0f}%  {gt_present_pct(hk_ranks):>6.0f}%  "
+              f"{mrr(naive_ranks):>7.4f}  {mrr(s_ranks):>7.4f}  {mrr(hg_ranks):>8.4f}  {mrr(hk_ranks):>8.4f}")
 
     # Detailed per-task table at 4000 tokens
-    print(f"\n--- Per-task breakdown @ budget=4000 ---")
+    print(f"\n--- Per-task @ budget=4000 ---")
     store3, _ = open_store(REPO_ROOT)
-    print(f"{'ID':8s} {'Naive':8s} {'TACM-KS':8s}  Description")
-    print("-" * 60)
+    print(f"{'ID':8s} {'Naive':8s} {'Struct':8s} {'HybGrdy':8s} {'HybKS':8s}  Description")
+    print("-" * 72)
     for i, bug in enumerate(BUGS):
         gt_abs = gt_absolutes[i]
         _, _, nr = naive_rag_retrieve(store3, root, bug["query"], bug["ground_truth"], 4000)
-        nodes = candidates_cache[bug["id"]]
-        selected = resolve(nodes, 4000, strategy="hybrid_full", use_knapsack=True)
-        tr = next((j + 1 for j, n in enumerate(selected) if n.node_id == gt_abs), None)
-        nr_s = f"#{nr}" if nr else "MISS"
-        tr_s = f"#{tr}" if tr else "MISS"
-        print(f"{bug['id']:8s} {nr_s:8s} {tr_s:8s}  {bug['desc'][:40]}")
+        nodes = candidates_cache[4000][bug["id"]]
+
+        sel_s  = resolve(nodes, 4000, strategy="structural",  use_knapsack=True)
+        sel_hg = resolve(nodes, 4000, strategy="hybrid_full", use_knapsack=False)
+        sel_hk = resolve(nodes, 4000, strategy="hybrid_full", use_knapsack=True)
+
+        def rank_str(sel): r = next((j+1 for j,n in enumerate(sel) if n.node_id==gt_abs), None); return f"#{r}" if r else "MISS"
+        print(f"{bug['id']:8s} {'#'+str(nr) if nr else 'MISS':8s} {rank_str(sel_s):8s} {rank_str(sel_hg):8s} {rank_str(sel_hk):8s}  {bug['desc'][:36]}")
     store3.close()
 
 
