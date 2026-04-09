@@ -2,14 +2,18 @@
 
 Uses the full crg capability set:
 - hybrid_search(): FTS5 BM25 + RRF (replaces naive LIKE search)
-- callers_of traversal: expands hits with graph-aware caller context
+- callers_of traversal: expands hits with graph-aware caller context (1-hop and 2-hop)
 - TESTED_BY edges: direct test coverage signal
 - signature field: included in FTS5 index for better matching
 - G3: semantic embedding similarity (SemanticIndex) — 5th scoring signal
+- G4-A: LLM query rewriting — decomposes NL bug report into targeted sub-queries
+- G4-B: 2-hop caller traversal with score decay
+- BM25-Body: BM25Okapi on full function source text (closes Gap 1: FTS5 only indexes name/sig)
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,6 +26,44 @@ if TYPE_CHECKING:
 
 # G3: semantic index is built lazily and cached per db_path
 _semantic_cache: dict[str, object] = {}  # db_path -> SemanticIndex | None
+
+# BM25-Body: cached per db_path to avoid rebuilding corpus on every query
+_bm25_cache: dict[str, object] = {}  # db_path -> _BM25BodyIndex | None
+
+
+def _tokenize_bm25(text: str) -> list[str]:
+    """Simple lowercase word-boundary tokenizer for BM25."""
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+class _BM25BodyIndex:
+    """BM25Okapi index over full function source text for all prod nodes."""
+
+    def __init__(self, nodes: list, source_texts: list[str]):
+        from rank_bm25 import BM25Okapi
+        self.nodes = nodes
+        corpus = [_tokenize_bm25(t) for t in source_texts]
+        self.bm25 = BM25Okapi(corpus)
+
+    def query(self, query: str, top_k: int = 40) -> dict[str, float]:
+        """Return {qualified_name: normalized_score} for top_k BM25 body hits.
+
+        Scores are normalized to [0, 1.0] — caller rescales to FTS5 range.
+        """
+        q_tokens = _tokenize_bm25(query)
+        if not q_tokens:
+            return {}
+        raw = self.bm25.get_scores(q_tokens)
+        max_score = float(max(raw)) if len(raw) > 0 else 1.0
+        if max_score <= 0:
+            return {}
+        pairs = sorted(zip(raw, self.nodes), key=lambda x: -x[0])
+        result = {}
+        for score, node in pairs[:top_k]:
+            if score <= 0:
+                break
+            result[node.qualified_name] = score / max_score  # normalized [0, 1]
+        return result
 
 
 def _degree(store: GraphStore, qualified_name: str) -> int:
@@ -126,13 +168,39 @@ def _get_semantic_index(store: GraphStore):
     return _semantic_cache[db_key]
 
 
+def _get_bm25_index(store: GraphStore) -> "_BM25BodyIndex | None":
+    """Lazily build BM25Okapi index over full function source text. Returns None if rank_bm25 unavailable."""
+    db_key = store.db_path
+    if db_key not in _bm25_cache:
+        try:
+            all_prod = store.get_nodes_by_kind(["Function"])
+            prod_nodes = [n for n in all_prod if not n.is_test]
+            source_texts = [
+                _read_source(n.file_path, n.line_start, n.line_end) or n.name
+                for n in prod_nodes
+            ]
+            _bm25_cache[db_key] = _BM25BodyIndex(prod_nodes, source_texts)
+        except ImportError:
+            _bm25_cache[db_key] = None
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("BM25-Body index build failed: %s", exc)
+            _bm25_cache[db_key] = None
+    return _bm25_cache[db_key]
+
+
 def query_to_scored_nodes(
     store: GraphStore,
     query: str,
     repo_root: Path,
-    max_candidates: int = 80,
+    max_candidates: int = 120,
     token_budget: int = 4000,
     use_semantic: bool = True,
+    use_bm25_body: bool = True,
+    use_rewriter: bool = False,
+    two_hop: bool = True,
+    use_reranker: bool = False,
+    use_cochange: bool = False,
 ) -> list["ScoredNode"]:
     """Build a scored candidate pool using crg's full capability set.
 
@@ -151,22 +219,74 @@ def query_to_scored_nodes(
     """
     from .resolver import ScoredNode
 
+    # --- Phase 0: G4-F file routing for large corpora ---
+    # For corpora > FILE_ROUTER_MIN_NODES, restrict FTS5 + semantic search to
+    # the top-K most relevant files. Reduces noise from unrelated subsystems.
+    _file_filter: set[str] | None = None
+    if token_budget < FULL_CORPUS_BUDGET_THRESHOLD:
+        try:
+            from .file_router import get_file_router, FILE_ROUTER_MIN_NODES
+            all_prod_check = store.get_nodes_by_kind(["Function"])
+            all_prod_check = [n for n in all_prod_check if not n.is_test]
+            if len(all_prod_check) >= FILE_ROUTER_MIN_NODES:
+                router = get_file_router(store, all_prod_check)
+                if router is not None:
+                    _file_filter = router.route(query)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("File router failed: %s", exc)
+
     # --- Phase 1: hybrid search (FTS5 BM25 + RRF) ---
-    # FTS5 wraps the whole query as a phrase ("word1 word2") — fails for multi-word
-    # natural-language queries. Run one hybrid_search per keyword + the full query,
-    # accumulate scores with max-merge. This uses FTS5 BM25 + kind boosting properly.
-    keywords = [w for w in query.split() if len(w) > 2]
+    # G4-A: if use_rewriter=True, decompose the NL bug report into targeted sub-queries
+    # phrased as implementation actions (e.g. "rebuild auth header on redirect" instead of
+    # "cookies not sent after redirect"). Each sub-query hits FTS5 independently.
+    # Without rewriter: split into individual keywords as before.
+    from .query_rewriter import rewrite_query_if_enabled
+    sub_queries = rewrite_query_if_enabled(query, use_rewriter=use_rewriter)
+
     score_by_qn: dict[str, float] = {}
 
-    for kw in keywords:
-        for h in hybrid_search(store, kw, limit=20):
+    for sq in sub_queries:
+        # Per-keyword search within each sub-query
+        keywords = [w for w in sq.split() if len(w) > 2]
+        for kw in keywords:
+            for h in hybrid_search(store, kw, limit=20):
+                qn = h["qualified_name"]
+                score_by_qn[qn] = max(score_by_qn.get(qn, 0.0), h["score"])
+        # Also try the full sub-query as a phrase
+        for h in hybrid_search(store, sq, limit=10):
             qn = h["qualified_name"]
             score_by_qn[qn] = max(score_by_qn.get(qn, 0.0), h["score"])
 
-    # Also try full query (works if the query happens to be a function name or short phrase)
+    # Always also try the original full query
     for h in hybrid_search(store, query, limit=10):
         qn = h["qualified_name"]
         score_by_qn[qn] = max(score_by_qn.get(qn, 0.0), h["score"])
+
+    # BM25-Body: search full function source text (closes Gap 1 — FTS5 only indexes name/sig).
+    # Top-K BM25 hits are merged into score_by_qn via max so body-vocabulary nodes
+    # can enter the direct pool even when FTS5 misses them entirely (Mode B rescue at G1).
+    # BM25 scores are scaled to match the FTS5 score range so they compete fairly in the
+    # ramp normalization. Without scaling, FTS5 exact-name hits (score ~3.0) dominate the
+    # ramp ceiling, compressing all BM25-body hits to h < 0.5.
+    if use_bm25_body:
+        try:
+            bm25_idx = _get_bm25_index(store)
+            if bm25_idx is not None:
+                bm25_hits = bm25_idx.query(query, top_k=40)
+                # Scale BM25 scores to FTS5 range: bm25_normalized is in [0,1],
+                # re-scale to [0, fts_max] so top BM25 hits are on par with top FTS5 hits.
+                # Scale BM25 body scores to 70% of FTS5 max score.
+                # This lets body-only Mode B nodes compete with graph traversal
+                # nodes while preserving FTS5 name/sig hits as the primary signal.
+                # At 100%, BM25 over-dominates and hurts precision on clean queries.
+                fts_max = max(score_by_qn.values()) if score_by_qn else 1.0
+                bm25_scale = fts_max * 1.00  # bm25_norm is in [0, 1]
+                for qn, bm25_norm in bm25_hits.items():
+                    score_by_qn[qn] = max(score_by_qn.get(qn, 0.0), bm25_norm * bm25_scale)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("BM25-Body search failed: %s", exc)
 
     direct_qns: set[str] = set(score_by_qn.keys())
 
@@ -175,34 +295,56 @@ def query_to_scored_nodes(
     # queries that match test function names (e.g. "test_session_cookies").
     direct_nodes = store._batch_get_nodes(direct_qns)
     direct_nodes = [n for n in direct_nodes if n.kind == "Function" and not n.is_test]
+    # G4-F: filter to routed files if file router is active
+    if _file_filter is not None:
+        direct_nodes = [n for n in direct_nodes if n.file_path in _file_filter]
+        direct_qns = {n.qualified_name for n in direct_nodes}
 
-    # --- Phase 2: callers_of expansion (graph traversal, 1 hop) ---
-    # Also track the max parent hybrid_score so caller nodes can inherit
-    # partial credit — prevents graph-traversed nodes scoring zero when
-    # the direct hit had a strong FTS5 signal.
-    caller_qns: set[str] = set()
-    caller_parent_score: dict[str, float] = {}  # caller_qn -> max parent hs
+    # --- Phase 2: callers_of expansion (G4-B: up to 2-hop with score decay) ---
+    # Hop-1: direct callers of FTS5 hits inherit parent_hs * 0.5
+    # Hop-2: callers of hop-1 nodes inherit hop1_hs * 0.25 (only if two_hop=True)
+    # Score decay ensures hop-2 nodes rank below hop-1 and well below direct hits.
+    caller_parent_score: dict[str, float] = {}  # caller_qn -> max inherited score
 
-    for n in direct_nodes:
-        parent_hs = score_by_qn.get(n.qualified_name, 0.0)
-        for e in store.get_edges_by_target(n.qualified_name):
-            if e.kind == "CALLS" and "::" in e.source_qualified:
-                caller_qns.add(e.source_qualified)
-                caller_parent_score[e.source_qualified] = max(
-                    caller_parent_score.get(e.source_qualified, 0.0), parent_hs
-                )
-    for n in direct_nodes:
-        parent_hs = score_by_qn.get(n.qualified_name, 0.0)
-        for e in store.search_edges_by_target_name(n.name, kind="CALLS"):
-            if "::" in e.source_qualified:
-                caller_qns.add(e.source_qualified)
-                caller_parent_score[e.source_qualified] = max(
-                    caller_parent_score.get(e.source_qualified, 0.0), parent_hs
-                )
+    def _expand_callers(source_nodes: list, parent_scores: dict[str, float], decay: float) -> set[str]:
+        """Return qns of callers of source_nodes, updating caller_parent_score."""
+        found: set[str] = set()
+        for n in source_nodes:
+            parent_hs = parent_scores.get(n.qualified_name, 0.0) * decay
+            if parent_hs < 0.001:
+                continue  # not worth expanding zero-score nodes
+            for e in store.get_edges_by_target(n.qualified_name):
+                if e.kind == "CALLS" and "::" in e.source_qualified:
+                    qn = e.source_qualified
+                    found.add(qn)
+                    caller_parent_score[qn] = max(caller_parent_score.get(qn, 0.0), parent_hs)
+            for e in store.search_edges_by_target_name(n.name, kind="CALLS"):
+                if "::" in e.source_qualified:
+                    qn = e.source_qualified
+                    found.add(qn)
+                    caller_parent_score[qn] = max(caller_parent_score.get(qn, 0.0), parent_hs)
+        return found
 
-    caller_qns -= direct_qns
-    caller_nodes = store._batch_get_nodes(caller_qns)
-    caller_nodes = [n for n in caller_nodes if n.kind in ("Function", "Test")]
+    # Hop 1 — cap at 40 to leave room for semantic nodes
+    hop1_qns = _expand_callers(direct_nodes, score_by_qn, decay=0.5) - direct_qns
+    hop1_nodes = store._batch_get_nodes(hop1_qns)
+    hop1_nodes = [n for n in hop1_nodes if n.kind in ("Function", "Test")]
+    # Sort by inherited score so we keep the best hop-1 nodes if capped
+    hop1_nodes.sort(key=lambda n: -caller_parent_score.get(n.qualified_name, 0.0))
+    hop1_nodes = hop1_nodes[:40]
+
+    # Hop 2 (optional) — cap tightly, only highest-score entries
+    hop2_nodes: list = []
+    if two_hop:
+        hop1_scores = {n.qualified_name: caller_parent_score.get(n.qualified_name, 0.0)
+                       for n in hop1_nodes}
+        hop2_qns = _expand_callers(hop1_nodes, hop1_scores, decay=0.5) - direct_qns - hop1_qns
+        hop2_nodes_raw = store._batch_get_nodes(hop2_qns)
+        hop2_nodes = [n for n in hop2_nodes_raw if n.kind in ("Function", "Test")]
+        hop2_nodes.sort(key=lambda n: -caller_parent_score.get(n.qualified_name, 0.0))
+        hop2_nodes = hop2_nodes[:20]  # strict cap — hop-2 is speculative
+
+    caller_nodes = hop1_nodes + hop2_nodes
 
     # --- Phase 2b: G3 semantic expansion ---
     # Build semantic scores for all nodes, add top-K semantic hits to the candidate pool.
@@ -216,7 +358,8 @@ def query_to_scored_nodes(
                 sem_hits = sem_idx.query(query, top_k=SEMANTIC_TOP_K)
                 semantic_score_by_qn = sem_hits
                 # Add semantic top hits to the candidate pool (Mode B rescue)
-                sem_qns = set(sem_hits.keys()) - direct_qns - caller_qns
+                caller_qns_so_far = {n.qualified_name for n in caller_nodes}
+                sem_qns = set(sem_hits.keys()) - direct_qns - caller_qns_so_far
                 sem_nodes = store._batch_get_nodes(sem_qns)
                 sem_nodes = [n for n in sem_nodes if n.kind == "Function" and not n.is_test]
                 # Inject as additional direct candidates (they got here via semantics, not FTS)
@@ -225,6 +368,33 @@ def query_to_scored_nodes(
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("G3 semantic scoring failed: %s", exc)
+
+    # --- Phase 2c: G4-E co-change expansion ---
+    # Expand candidate pool with functions that historically co-change with FTS5 hits.
+    # Helps find structurally related functions that share no call edge.
+    if use_cochange:
+        try:
+            from .cochange import get_cochange_index
+            cc_idx = get_cochange_index(repo_root, store.db_path)
+            if cc_idx is not None:
+                hit_names = [qn.split("::")[-1] for qn in direct_qns]
+                cc_partners = cc_idx.expand(hit_names, top_k=10)
+                cc_partner_qns: set[str] = set()
+                for partner in cc_partners:
+                    # Find nodes matching this name in the store
+                    for h in hybrid_search(store, partner, limit=5):
+                        pqn = h["qualified_name"]
+                        if pqn not in direct_qns and pqn not in {n.qualified_name for n in caller_nodes}:
+                            cc_partner_qns.add(pqn)
+                            # Score: low but non-zero so they enter the pool
+                            score_by_qn[pqn] = max(score_by_qn.get(pqn, 0.0), 0.05)
+                cc_nodes = store._batch_get_nodes(cc_partner_qns)
+                cc_nodes = [n for n in cc_nodes if n.kind == "Function" and not n.is_test]
+                direct_nodes = direct_nodes + cc_nodes
+                direct_qns |= {n.qualified_name for n in cc_nodes}
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Co-change expansion failed: %s", exc)
 
     if token_budget >= FULL_CORPUS_BUDGET_THRESHOLD:
         # At large budgets: use full corpus only for small repos (< 2000 prod nodes)
@@ -276,6 +446,19 @@ def query_to_scored_nodes(
             line_end=n.line_end or 0,
             hybrid_score=blended_hs,
         ))
+
+    # --- Phase 4: G4-D cross-encoder re-ranking (optional, expensive) ---
+    # Re-ranks top-20 candidates using Claude to jointly score (query, function).
+    # Only use when latency/cost is acceptable — ~1-3K tokens per query.
+    if use_reranker and scored:
+        try:
+            from .reranker import rerank
+            # Sort by current score before re-ranking so top-K is meaningful
+            scored.sort(key=lambda n: -n.hybrid_score)
+            scored = rerank(query, scored)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Reranker failed: %s", exc)
 
     return scored
 

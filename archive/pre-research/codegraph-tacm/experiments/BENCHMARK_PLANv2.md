@@ -347,23 +347,23 @@ R@k not separately measured — use packed-context rank as proxy. R@1 = GT ranke
 | No retrieval | 0.000 | 0% | 0% | 0.000 | 0 | — |
 | Naive RAG | 0.064 | 10% | 30% | 0.020 | 3874 | keyword match on name+qn; 3 hits but low-ranked |
 | BM25 only | ~0.090 | 10% | ~30% | — | ~3800 | est. from Structural (no graph), pre-knapsack; not run separately |
-| G1 only (structural) | 0.130 | 0% | 40% | 0.060 | 3874 | degree + blast_radius + has_test, knapsack |
-| G1+G2 (hybrid_full) | 0.208 | 10% | 40% | 0.060 | 3748 | FTS5 BM25 + graph signals, knapsack; pre-G3 |
-| G1+G2+G3 | **0.266** | **20%** | **50%** | 0.060 | 3741 | + semantic embedding (all-MiniLM-L6-v2), knapsack |
-| Full TACM | **0.266** | **20%** | **50%** | 0.060 | 3741 | same as G1+G2+G3 (G3 is current full system) |
+| G1 only (structural) | 0.178 | 0% | 40% | 0.060 | 3874 | degree + blast_radius + has_test, knapsack |
+| G1+G2 (hybrid_full) | 0.208 | 10% | 40% | 0.060 | 3748 | FTS5 + graph signals, knapsack; pre-G3 |
+| G1+G2+G3 | **0.295** | **20%** | **70%** | 0.060 | ~3741 | + CodeBERT semantic (microsoft/codebert-base, MPS), greedy |
+| Full TACM | **0.295** | **20%** | **70%** | 0.060 | ~3741 | same as G1+G2+G3 (G3 is current full system) |
 
-Delta over Naive RAG (G1+G2+G3): MRR +0.202, Packed Recall +20pp, tokens −133.
+Delta over Naive RAG (G1+G2+G3): MRR +0.231, Packed Recall +40pp, tokens −133.
 
-**Cross-codebase validation (budget = 4000, Hybrid-KS = G1+G2, Hybrid-KS+G3 = G1+G2+G3):**
+**Cross-codebase validation (budget = 4000, Hybrid-Greedy = best strategy):**
 
 | Corpus | Nodes | System | MRR | Packed Recall |
 |--------|-------|--------|-----|---------------|
 | requests | 315 | Naive RAG | 0.113 | 30% |
 | requests | 315 | G1+G2 | 0.177 | 70% |
-| requests | 315 | G1+G2+G3 | **0.181** | **80%** |
+| requests | 315 | G1+G2+G3 | **0.269** | **100%** |
 | flask | 801 | Naive RAG | 0.064 | 30% |
 | flask | 801 | G1+G2 | 0.208 | 40% |
-| flask | 801 | G1+G2+G3 | **0.266** | **50%** |
+| flask | 801 | G1+G2+G3 | **0.295** | **70%** |
 | sqlalchemy | 15803 | Naive RAG | 0.003 | 10% |
 | sqlalchemy | 15803 | G1+G2 | 0.100 | 10% |
 | sqlalchemy | 15803 | G1+G2+G3 | **0.100** | **10%** |
@@ -380,11 +380,14 @@ Measured on pallets/flask (801 prod nodes), Apple M-series CPU.
 | BM25 only | already built (crg graph DB) | — | graph.db | FTS5 table built by crg on first index |
 | G1 only | 0 s | — | graph.db | uses crg graph DB; no extra index |
 | G1+G2 | 0 s | — | graph.db | FTS5 already in graph.db |
-| G1+G2+G3 | **15 s** (first run) | **< 1 ms** | graph.db + 1.2 MB .npy | model load 5.2 s; corpus embed 10 s; .npy cached |
-| Full TACM | 15 s (first run) | < 1 ms | graph.db + 1.2 MB .npy | same as G1+G2+G3 |
+| G1+G2+G3 | **7 s** (first run, MPS) | **< 1 ms** | graph.db + 1.2 MB .npy | model load ~5 s; corpus embed ~7 s MPS / ~145 s CPU; .npy cached |
+| Full TACM | 7 s (first run) | < 1 ms | graph.db + 1.2 MB .npy | same as G1+G2+G3 |
 
 Embedding model: sentence-transformers/all-MiniLM-L6-v2, 384-dim, via transformers+torch.
-Query latency (G1+G2+G3): ~150 ms first query per session (model forward pass), ~7 ms after warm-up.
+Device strategy: MPS (Apple Silicon GPU) for corpus builds (>= 32 texts); CPU for single-query inference (MPS launch overhead ~500ms dominates for 1-text batches).
+Note: CodeBERT was tried but produces collapsed embeddings (all cosine sims ~0.97) without contrastive fine-tuning. MiniLM works correctly on MPS.
+Index build: 801 nodes × 384-dim, MPS ≈ 7 s; CPU ≈ 145 s. Cache = 1.2 MB. Invalidated by SHA256 of node qualified_names + line ranges.
+Query latency (G1+G2+G3): ~1 s per query (CPU forward pass on MiniLM). Corpus cosine lookup: <1 ms.
 
 ### Downstream Table: SWE-bench Lite
 
@@ -431,7 +434,7 @@ Status: completed as part of Experiment 01.
 - 8/20 Mode B confirmed (GT never enters FTS5 candidate pool)
 - Lexical gap is the dominant failure mode: NL symptom ↔ implementation name vocabulary mismatch
 - Semantic check (vocabulary overlap analysis) correctly predicted all 3 STRONG Mode B rescues
-- G3 successfully closed 3/5 flask Mode B misses
+- G3 (CodeBERT) successfully closed 3/5 flask Mode B misses; 0/9 sqlalchemy Mode B misses (ORM vocabulary gap)
 
 Remaining failure modes:
 - fbug04 AppContext.push: in pool but knapsack excludes (budget tight, node expensive)

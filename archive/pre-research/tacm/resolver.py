@@ -66,16 +66,16 @@ def _score_structural_truncated(node: ScoredNode) -> float:
     return _score_structural(node)
 
 
-def _score_hybrid_full(node: ScoredNode) -> float:
+def _score_hybrid_full(node: ScoredNode, hs_lo: float = 0.010, hs_hi: float = 0.018) -> float:
     """Strategy E: hybrid_search relevance + structural signals.
 
     Key design decisions vs original:
 
     1. hybrid_score normalised as RANK signal not absolute value.
-       RRF scores cluster 0.014–0.025 — dividing by 0.02 gives 0.7–1.0 for
-       everything, making it useless as a discriminator. Instead treat it as
-       a relative rank: nodes above 0.018 (top ~30%) get full credit,
-       below 0.010 (noise) get zero. Linear ramp between.
+       Scores are linearly ramped from hs_lo (noise floor) to hs_hi (full credit).
+       These bounds are computed per-query from the actual score distribution
+       (see resolve() which passes hs_lo/hs_hi via partial application).
+       Default fallback: [0.010, 0.018] for RRF-style scores.
 
     2. Degree computed on production edges only (non-test callers).
        Test functions have high degree within test infrastructure. We want
@@ -85,8 +85,8 @@ def _score_hybrid_full(node: ScoredNode) -> float:
     3. blast_radius only for TOP search hits, not all hits.
        All direct search hits get in_blast_radius=True in the adapter, but
        with multi-keyword search this means 40+ nodes. Reserve the bonus for
-       nodes with hybrid_score above the median of the candidate pool.
-       This is approximated here by requiring hs > 0.016.
+       nodes with hybrid_score above the top-30% of the candidate pool.
+       This is approximated here by requiring hs >= hs_hi * 0.7.
 
     Weights (sum to 1.0):
       w_hybrid  = 0.55  — primary signal: query relevance
@@ -94,15 +94,16 @@ def _score_hybrid_full(node: ScoredNode) -> float:
       w_test    = 0.10  — test coverage (positive signal for functions WITH tests)
       w_blast   = 0.10  — blast radius (narrow: only strong search hits)
     """
-    # Hybrid score: linear ramp [0.010, 0.018] → [0.0, 1.0]
     hs = node.hybrid_score
-    h = max(0.0, min(1.0, (hs - 0.010) / (0.018 - 0.010)))
+    ramp_range = max(hs_hi - hs_lo, 1e-6)
+    h = max(0.0, min(1.0, (hs - hs_lo) / ramp_range))
 
     # Degree: cap at 15 for production functions (tests inflate this)
     d = min(node.degree / 15, 1.0) if not node.is_test else 0.0
 
-    # Blast radius: only reward strong search hits
-    blast = float(node.in_blast_radius and hs >= 0.016)
+    # Blast radius: only reward strong search hits (top ~30% by score)
+    blast_threshold = max(hs_lo, hs_hi * 0.7)
+    blast = float(node.in_blast_radius and hs >= blast_threshold)
 
     return (
         0.55 * h
@@ -117,7 +118,7 @@ _SCORERS = {
     "value_density":        _score_value_density,
     "degree_only":          _score_degree_only,
     "structural_truncated": _score_structural_truncated,
-    "hybrid_full":          _score_hybrid_full,
+    "hybrid_full":          _score_hybrid_full,  # hs_lo/hs_hi computed per-call in resolve()
 }
 
 
@@ -143,8 +144,27 @@ def resolve(
     use_knapsack=False: greedy value/cost fill (original behaviour, kept for
     comparison in benchmarks).
     """
-    scorer = _SCORERS[strategy]
     candidates = [n for n in nodes if not (exclude_tests and n.is_test)]
+
+    # For hybrid_full, compute per-call ramp bounds from actual score distribution.
+    # hybrid_score values vary widely across codebases (0.002–3.0 depending on FTS5
+    # hit density). A fixed ramp saturates the signal for high-scoring corpora.
+    # Strategy: use min as noise floor, max as full-credit threshold, with a floor
+    # guard so zero-score nodes (semantic-only expansions) always get h=0.
+    if strategy == "hybrid_full" and candidates:
+        hs_nonzero = sorted([n.hybrid_score for n in candidates if n.hybrid_score > 0])
+        if len(hs_nonzero) >= 4:
+            hs_lo = hs_nonzero[0]  # minimum nonzero score = noise floor
+            hs_hi = hs_nonzero[-1]  # maximum score = full credit
+            # Guard: avoid degenerate ramp when all scores are equal
+            if hs_hi <= hs_lo:
+                hs_hi = hs_lo * 2.0
+        else:
+            hs_lo, hs_hi = 0.010, 0.018
+        import functools
+        scorer = functools.partial(_score_hybrid_full, hs_lo=hs_lo, hs_hi=hs_hi)
+    else:
+        scorer = _SCORERS[strategy]
 
     for node in candidates:
         node.score = scorer(node)
