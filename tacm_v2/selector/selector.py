@@ -76,21 +76,62 @@ def _prepare_serialized_texts(
     return all_nodes, agent_texts, score_texts
 
 
+# ---------------------------------------------------------------------------
+# Adaptive overflow constants (used by both selectors)
+# ---------------------------------------------------------------------------
+
+DEFAULT_MAX_OVERFLOW_RATIO = 0.5     # up to 50% extra tokens beyond base budget
+DEFAULT_OVERFLOW_SCORE_FLOOR = 0.25  # minimum score to enter overflow at all
+
+
+def _count_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+
+def _overflow_quality_gate(
+    overflow_used: int,
+    max_overflow: int,
+    score_floor: float,
+) -> float:
+    """Rising quality gate: easier at start of overflow, harder near the cap.
+
+    Returns the minimum score a node must have to be accepted into overflow.
+
+    At 0% overflow consumed → gate = score_floor          (permissive)
+    At 100% overflow consumed → gate = 1.0                (impossible)
+    Linear ramp in between.
+    """
+    if max_overflow <= 0:
+        return 1.0  # no overflow allowed
+    progress = min(1.0, overflow_used / max_overflow)
+    return score_floor + progress * (1.0 - score_floor)
+
+
 def select(
     graph: LayeredGraph,
     query: str,
     token_budget: int,
     intent: Optional[str] = None,
     exclude_tests: bool = True,
+    max_overflow_ratio: float = DEFAULT_MAX_OVERFLOW_RATIO,
+    overflow_score_floor: float = DEFAULT_OVERFLOW_SCORE_FLOOR,
 ) -> SelectionResult:
-    """Main entry point. Returns selected nodes within token_budget.
+    """Main entry point. Returns selected nodes, with adaptive overflow.
+
+    The base budget is allocated per-layer as before. After the FUNCTION layer
+    fills its base quota, an **overflow zone** allows additional high-scoring
+    functions to be included. The overflow zone is bounded by
+    ``token_budget * max_overflow_ratio`` extra tokens, and each candidate must
+    clear a rising quality gate to be admitted.
 
     Args:
-        graph:        The LayeredGraph for the repo.
-        query:        Natural language query.
-        token_budget: Maximum tokens to spend on context.
-        intent:       Override intent classification (for testing/ablation).
-        exclude_tests: Skip test nodes (default True).
+        graph:                The LayeredGraph for the repo.
+        query:                Natural language query.
+        token_budget:         Base token budget (hard floor for the base phase).
+        intent:               Override intent classification (for testing/ablation).
+        exclude_tests:        Skip test nodes (default True).
+        max_overflow_ratio:   Fraction of token_budget available as overflow (default 0.5).
+        overflow_score_floor: Minimum score to enter overflow at all (default 0.25).
     """
     if intent is None:
         intent = classify_intent(query)
@@ -171,6 +212,33 @@ def select(
                 selected_ids.add(node.node_id)
                 remaining -= cost
                 count += 1
+            elif (
+                layer == Layer.FUNCTION
+                and max_overflow_ratio > 0
+                and remaining <= 0
+            ):
+                # --- Adaptive overflow for FUNCTION layer ---
+                # Once the base fn budget is consumed, allow high-scoring
+                # functions into an overflow zone with a rising quality gate.
+                max_overflow = int(token_budget * max_overflow_ratio)
+                overflow_used = -remaining  # how far past zero we've gone
+                if overflow_used + cost > max_overflow:
+                    continue  # would exceed hard cap
+                gate = _overflow_quality_gate(
+                    overflow_used, max_overflow, overflow_score_floor,
+                )
+                if score >= gate:
+                    selected.append(SelectedNode(
+                        node=node,
+                        layer=layer,
+                        text=text,
+                        token_cost=cost,
+                        score=score,
+                        intent=intent,
+                    ))
+                    selected_ids.add(node.node_id)
+                    remaining -= cost  # goes further negative
+                    count += 1
 
         layer_counts[layer.name] = count
 
@@ -182,10 +250,6 @@ def select(
         intent=intent,
         layer_counts=layer_counts,
     )
-
-
-def _count_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
 
 
 def _diversity_penalty(
@@ -223,14 +287,19 @@ def select_dynamic(
     token_budget: int,
     intent: Optional[str] = None,
     exclude_tests: bool = True,
+    max_overflow_ratio: float = DEFAULT_MAX_OVERFLOW_RATIO,
+    overflow_score_floor: float = DEFAULT_OVERFLOW_SCORE_FLOOR,
 ) -> SelectionResult:
-    """Cross-layer TACM selector with dynamic budget allocation.
+    """Cross-layer TACM selector with dynamic budget allocation + overflow.
 
     Strategy:
     1. Score each layer independently with the same NodeScorer.
     2. Seed a minimal structural skeleton (top FILE and top CLASS when useful).
     3. Let all remaining nodes compete for the rest of the budget globally.
     4. Apply the same containment bonus during global selection.
+    5. **Overflow**: after the base budget is consumed, continue selecting nodes
+       that clear a rising quality gate, up to ``token_budget * max_overflow_ratio``
+       additional tokens.
 
     This keeps TACM's structural priors while avoiding the rigid layer split
     that excluded too many functions in the budgeted Experiment 03 setting.
@@ -309,9 +378,12 @@ def select_dynamic(
     _pick_top_seed(Layer.FILE, seed_files)
     _pick_top_seed(Layer.CLASS, seed_classes)
 
-    # Global competition for the remaining budget.
+    # Global competition for the remaining budget, then overflow.
+    max_overflow = int(token_budget * max_overflow_ratio)
     remaining_nodes = [n for n in all_nodes if n.node_id not in selected_ids]
-    while remaining > 0 and remaining_nodes:
+    in_overflow = False
+
+    while remaining_nodes:
         best_node: LNode | None = None
         best_score = -1.0
         best_cost = 0
@@ -319,8 +391,16 @@ def select_dynamic(
         for node in remaining_nodes:
             text = agent_texts[node.node_id]
             cost = _count_tokens(text)
-            if cost > remaining:
-                continue
+
+            # Budget check: base phase vs overflow phase
+            if remaining > 0:
+                if cost > remaining:
+                    continue
+            else:
+                # In overflow phase — check hard cap
+                overflow_used = -remaining
+                if overflow_used + cost > max_overflow:
+                    continue
 
             adjusted = base_scores.get(node.node_id, 0.0)
             if node.parent_id and node.parent_id in selected_ids:
@@ -334,6 +414,17 @@ def select_dynamic(
 
         if best_node is None:
             break
+
+        # In overflow phase, apply the quality gate
+        if remaining <= 0:
+            overflow_used = -remaining
+            gate = _overflow_quality_gate(
+                overflow_used, max_overflow, overflow_score_floor,
+            )
+            if best_score < gate:
+                break  # best candidate can't clear the gate — stop
+            if not in_overflow:
+                in_overflow = True
 
         selected.append(SelectedNode(
             node=best_node,

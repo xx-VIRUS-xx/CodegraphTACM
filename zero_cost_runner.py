@@ -1,12 +1,23 @@
-"""zero_cost_runner.py — End-to-end retrieval + solve benchmark.
+"""zero_cost_runner.py — Function-level retrieval benchmark.
 
-Mirrors the Exp 04 conditions (bm25, minilm, codesearch, hybrid, hybrid-cs,
-tacm, tacm-rerank) but runs against executable_benchmark.json (SWE-bench Lite
-style instances with real test infrastructure).
+Evaluates retrieval quality at **function granularity**: did the retriever
+put the exact GT function(s) changed in the patch into its top-K?
+
+This is the correct metric for a zero-LLM-call context retriever whose job
+is to hand a small coding agent the precise functions it needs — not just
+the right file.  File-level hit is tracked as a secondary reference metric.
+
+Primary metrics:
+    Fn-Hit@K   — did any GT function appear in the top-K ranked functions?
+    Fn-MRR     — mean reciprocal rank of the first GT function hit
+    Tokens     — total tokens consumed by top-K context (efficiency)
+
+Secondary metrics:
+    File-Hit@K — did a GT file appear (legacy, for reference)
 
 Pipeline per instance:
-    Query → Retriever → Top-K files → GT hit check
-    If hit → apply GT patch → run tests → SOLVED
+    Query → Retriever → Ranked functions → GT function match
+    If --exec and fn-hit → apply GT patch → run tests → SOLVED
 
 Usage:
     # Retrieval-only, all conditions, Python only:
@@ -94,12 +105,216 @@ def _extract_gt_files(patch_str: str) -> list[str]:
     ]
 
 
-def _retrieval_hit(retrieved: list[str], gt_files: list[str]) -> bool:
-    for gt in gt_files:
-        for f in retrieved:
-            if f.replace("\\", "/").endswith(gt.replace("\\", "/")):
-                return True
+# ---------------------------------------------------------------------------
+# Function-level GT extraction from unified diff
+# ---------------------------------------------------------------------------
+
+_HUNK_RE  = re.compile(r"^@@ .+ @@(.*)$")
+_FILE_RE  = re.compile(r"^\+\+\+ b/(.+)$")
+
+# Hunk header context: git puts the enclosing function/class after @@
+# e.g. "@@ -242,7 +242,7 @@ def _cstack(left, right):"
+# Covers Python, Java, JS/TS, Rust, Go, C/C++, Ruby, Kotlin, Swift
+_HUNK_CTX_FN_PATTERNS = [
+    re.compile(r"def\s+(\w+)\s*\("),                          # Python
+    re.compile(r"fn\s+(\w+)\s*[\(<]"),                         # Rust
+    re.compile(r"func\s+(?:\([^)]*\)\s*)?(\w+)\s*\("),        # Go (incl. method receiver)
+    re.compile(r"(?:function|async\s+function)\s+(\w+)\s*\("), # JS/TS
+    re.compile(r"(?:public|private|protected|static|final|abstract|override|suspend|internal)\s+[\w<>\[\]?,\s]*\s+(\w+)\s*\("),  # Java/Kotlin/C# (requires access modifier)
+    re.compile(r"(?:export\s+)?(?:default\s+)?(?:async\s+)?(\w+)\s*(?:=|:)\s*(?:function|\([^)]*\)\s*=>)"),  # JS arrow/assigned
+]
+_HUNK_CTX_CLASS_RE = re.compile(r"class\s+(\w+)[\s:({\[]")
+_HUNK_CTX_STRUCT_RE = re.compile(r"(?:struct|impl|enum|trait|interface)\s+(\w+)")
+
+# Content line parsers — multi-language
+_DEF_PATTERNS = [
+    (re.compile(r"^[ +\-]?(\s*)def\s+(\w+)\s*\("), "python"),
+    (re.compile(r"^[ +\-]?(\s*)fn\s+(\w+)\s*[\(<]"), "rust"),
+    (re.compile(r"^[ +\-]?(\s*)func\s+(?:\([^)]*\)\s*)?(\w+)\s*\("), "go"),
+    (re.compile(r"^[ +\-]?(\s*)(?:function|async\s+function)\s+(\w+)\s*\("), "js"),
+    (re.compile(r"^[ +\-]?(\s*)(?:public|private|protected|static|final|abstract|override|suspend|internal)\s+[\w<>\[\]?,\s]*\s+(\w+)\s*\("), "java"),
+]
+_CLASS_RE = re.compile(r"^[ +\-]?(\s*)(?:class|struct|impl|enum|trait|interface)\s+(\w+)[\s:({\[]")
+
+
+def _extract_gt_functions(patch_str: str) -> tuple[list[str], list[str], list[str]]:
+    """Extract (gt_functions, gt_files, gt_classes) from unified diff.
+
+    gt_functions: qualified names like "ClassName.method_name" or "function_name"
+    gt_files:     file paths like "astropy/modeling/separable.py"
+    gt_classes:   class names that contain the changed functions
+
+    Handles two sources of function names:
+    1. `def` lines that appear as actual diff content (+/- or context lines)
+    2. Hunk headers: `@@ ... @@ def func_name(...)` — git embeds the nearest
+       enclosing function/class definition here. Most SWE-bench patches modify
+       code *inside* an existing function without touching the `def` line, so
+       the hunk header is often the only place the function name appears.
+    """
+    gt_functions: list[str] = []
+    gt_files: list[str] = []
+    gt_classes: list[str] = []
+    seen_fns: set[str] = set()
+    seen_cls: set[str] = set()
+    context_stack: list[tuple[int, str, bool]] = []  # (indent, name, is_class)
+    in_hunk = False
+    hunk_has_content_def = False  # tracks if hunk had a def in its diff lines
+
+    for line in patch_str.splitlines():
+        fm = _FILE_RE.match(line)
+        if fm:
+            fpath = fm.group(1)
+            gt_files.append(fpath)
+            context_stack = []
+            in_hunk = False
+            continue
+
+        hm = _HUNK_RE.match(line)
+        if hm:
+            in_hunk = True
+            hunk_has_content_def = False
+            # Parse hunk header context to seed the stack.
+            hunk_ctx = hm.group(1).strip() if hm.group(1) else ""
+            if hunk_ctx:
+                context_stack = []
+                # Check for class/struct/impl
+                hc = _HUNK_CTX_CLASS_RE.search(hunk_ctx)
+                if not hc:
+                    hc = _HUNK_CTX_STRUCT_RE.search(hunk_ctx)
+                if hc:
+                    context_stack.append((0, hc.group(1), True))
+                # Check for function across languages
+                hd = None
+                for pat in _HUNK_CTX_FN_PATTERNS:
+                    hd = pat.search(hunk_ctx)
+                    if hd:
+                        break
+                if hd:
+                    context_stack.append((4 if hc else 0, hd.group(1), False))
+            continue
+
+        cm = _CLASS_RE.match(line)
+        if cm and not line.startswith("---"):
+            indent = len(cm.group(1))
+            while context_stack and context_stack[-1][0] >= indent:
+                context_stack.pop()
+            context_stack.append((indent, cm.group(2), True))
+
+        # Try multi-language def patterns
+        dm = None
+        for pat, _lang in _DEF_PATTERNS:
+            dm = pat.match(line)
+            if dm:
+                break
+        if dm and not line.startswith("---"):
+            indent = len(dm.group(1))
+            while context_stack and context_stack[-1][0] >= indent:
+                context_stack.pop()
+            fn_name = dm.group(2)
+            context_stack.append((indent, fn_name, False))
+            if in_hunk:
+                hunk_has_content_def = True
+
+        if in_hunk and line.startswith(("-", "+")) and not line.startswith(("---", "+++")):
+            classes = [n for (_, n, is_cls) in context_stack if is_cls]
+            fns     = [n for (_, n, is_cls) in context_stack if not is_cls]
+            if fns:
+                fn = fns[-1]
+                gt = f"{classes[-1]}.{fn}" if classes else fn
+                if gt not in seen_fns:
+                    seen_fns.add(gt)
+                    gt_functions.append(gt)
+                for cls in classes:
+                    if cls not in seen_cls:
+                        seen_cls.add(cls)
+                        gt_classes.append(cls)
+
+    return gt_functions, list(dict.fromkeys(gt_files)), gt_classes
+
+
+# ---------------------------------------------------------------------------
+# GT matching helpers
+# ---------------------------------------------------------------------------
+
+def _fn_matches_gt_strict(
+    node_id: str,
+    node_file: str,
+    gt_fn: str,
+    gt_files: list[str],
+) -> bool:
+    """Strict match: function short name AND file path suffix must both agree."""
+    gt_fn_short = gt_fn.split(".")[-1]
+    node_fn_part = node_id.split("::")[-1] if "::" in node_id else node_id
+    node_fn_short = node_fn_part.split(".")[-1]
+    if gt_fn_short != node_fn_short:
+        return False
+    node_path = node_file or (node_id.split("::")[0] if "::" in node_id else "")
+    for gt_file in gt_files:
+        if node_path.replace("\\", "/").endswith(gt_file.replace("\\", "/")):
+            return True
     return False
+
+
+def _fn_matches_gt_lenient(node_id: str, gt_fn: str) -> bool:
+    """Lenient match: short function name only."""
+    gt_fn_short = gt_fn.split(".")[-1]
+    node_fn_part = node_id.split("::")[-1] if "::" in node_id else node_id
+    node_fn_short = node_fn_part.split(".")[-1]
+    return gt_fn_short == node_fn_short
+
+
+def _file_matches_gt(node_file: str, gt_files: list[str]) -> bool:
+    """File-level match: node's file path ends with GT relative path."""
+    if not node_file or not gt_files:
+        return False
+    for gt_file in gt_files:
+        if node_file.replace("\\", "/").endswith(gt_file.replace("\\", "/")):
+            return True
+    return False
+
+
+def _match_ranked_functions(
+    ranked_nodes: list,
+    gt_fns: list[str],
+    gt_files: list[str],
+    top_k: int,
+) -> dict:
+    """Match ranked function nodes against GT. Returns metrics dict.
+
+    Returns:
+        strict_rank:  1-based rank of first strict fn match, or None
+        lenient_rank: 1-based rank of first lenient fn match, or None
+        file_rank:    1-based rank of first file match (from fn list), or None
+        top_k_tokens: total tokens in the top-K nodes
+    """
+    strict_rank = None
+    lenient_rank = None
+    file_rank = None
+    top_k_tokens = 0
+
+    for rank, node in enumerate(ranked_nodes[:top_k], 1):
+        nid = getattr(node, "node_id", getattr(node, "qualified_name", ""))
+        nfile = getattr(node, "file_path", "") or ""
+        tcost = getattr(node, "token_cost", 0)
+        top_k_tokens += tcost
+
+        for gt_fn in gt_fns:
+            if strict_rank is None and _fn_matches_gt_strict(nid, nfile, gt_fn, gt_files):
+                strict_rank = rank
+            if lenient_rank is None and _fn_matches_gt_lenient(nid, gt_fn):
+                lenient_rank = rank
+        if file_rank is None and _file_matches_gt(nfile, gt_files):
+            file_rank = rank
+
+        if strict_rank and lenient_rank and file_rank:
+            break
+
+    return {
+        "strict_rank": strict_rank,
+        "lenient_rank": lenient_rank,
+        "file_rank": file_rank,
+        "top_k_tokens": top_k_tokens,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -175,29 +390,6 @@ def _read_source(file_path: str, line_start: int, line_end: int) -> str:
         return "\n".join(lines[max(0, line_start - 1): min(len(lines), line_end)])
     except OSError:
         return ""
-
-
-# ---------------------------------------------------------------------------
-# Shared: node → relative file path
-# ---------------------------------------------------------------------------
-
-def _node_files(nodes, repo_path: Path, top_k: int) -> list[str]:
-    """Deduplicate to file level, return top_k relative paths."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for n in nodes:
-        fp = getattr(n, "file_path", None)
-        if not fp or fp in seen:
-            continue
-        seen.add(fp)
-        try:
-            rel = str(Path(fp).relative_to(repo_path))
-        except ValueError:
-            rel = fp
-        result.append(rel)
-        if len(result) >= top_k:
-            break
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +652,408 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
 
 
 # ---------------------------------------------------------------------------
+# TACM Trace — per-instance diagnostic HTML
+# ---------------------------------------------------------------------------
+
+_TRACE_DIR = ROOT / "tacm_traces"
+
+def _generate_tacm_trace(
+    instance_id: str,
+    query: str,
+    condition: str,
+    graph,
+    fn_nodes: list,
+    ranked_nodes: list,
+    gt_fns: list[str],
+    gt_files: list[str],
+    top_k: int,
+    match_result: dict,
+) -> str:
+    """Build a per-instance diagnostic HTML trace and write it to disk.
+
+    Returns the path of the generated HTML file.
+    """
+    from tacm_v2.layers.serializers import serialize
+    from tacm_v2.selector.intent import classify_intent, INTENT_WEIGHTS, LAYER_BUDGETS
+    from tacm_v2.selector.scoring import (
+        NodeScorer, compute_bm25, compute_fan_in, compute_fan_out,
+        compute_complexity, compute_test_cover, compute_neighborhood_bonus,
+        compute_pagerank,
+    )
+    from tacm_v2.graph.model import Layer, EdgeKind
+    from collections import Counter
+
+    intent = classify_intent(query)
+    weights_tuple = INTENT_WEIGHTS[intent]
+    weight_names = ["bm25", "fan_in", "fan_out", "complexity", "test_cover"]
+    weights = dict(zip(weight_names, weights_tuple))
+    layer_budgets = dict(zip(["file", "class", "function"], LAYER_BUDGETS[intent]))
+
+    all_nodes_list = [n for n in graph.nodes.values() if not n.is_test]
+    texts = {n.node_id: serialize(n, graph) for n in all_nodes_list}
+    scorer = NodeScorer(graph, query, intent, texts)
+
+    name_counts = Counter(
+        (n.name, n.file_path) for n in graph.nodes.values()
+        if n.layer.name == "FUNCTION"
+    )
+
+    # Per-signal scoring for all fn_nodes
+    bm25     = compute_bm25(query, fn_nodes, texts)
+    fan_in   = compute_fan_in(fn_nodes, graph, name_counts)
+    fan_out  = compute_fan_out(fn_nodes, graph)
+    cmplx    = compute_complexity(fn_nodes)
+    test_cov = compute_test_cover(fn_nodes, graph)
+    nbr      = compute_neighborhood_bonus(fn_nodes, graph, scorer.score_all(fn_nodes))
+    pr       = compute_pagerank(fn_nodes, graph)
+
+    # GT sets for quick lookup
+    gt_fn_shorts = {fn.split(".")[-1] for fn in gt_fns}
+    gt_file_set  = {f.replace("\\", "/") for f in gt_files}
+
+    def _is_gt(node) -> str:
+        """Returns 'strict', 'lenient', or '' to classify GT match."""
+        nid = getattr(node, "node_id", "")
+        nfile = getattr(node, "file_path", "") or ""
+        for gt_fn in gt_fns:
+            if _fn_matches_gt_strict(nid, nfile, gt_fn, gt_files):
+                return "strict"
+        for gt_fn in gt_fns:
+            if _fn_matches_gt_lenient(nid, gt_fn):
+                return "lenient"
+        return ""
+
+    def _short(nid: str) -> str:
+        return nid.split("::")[-1] if "::" in nid else nid.split("/")[-1]
+
+    def _short_file(fp: str) -> str:
+        p = Path(fp)
+        parts = p.parts
+        return str(Path(*parts[-3:])) if len(parts) >= 3 else fp
+
+    # Build ranked list data (top 30)
+    ranked_data = []
+    for rank, node in enumerate(ranked_nodes[:30], 1):
+        nid = node.node_id
+        nfile = node.file_path or ""
+        gt_tag = _is_gt(node)
+        ranked_data.append({
+            "rank": rank,
+            "id": nid,
+            "short": _short(nid),
+            "file": _short_file(nfile),
+            "line": node.line_start or 0,
+            "tokens": node.token_cost,
+            "in_topk": rank <= top_k,
+            "gt": gt_tag,
+            "signals": {
+                "bm25":       round(bm25.get(nid, 0), 4),
+                "fan_in":     round(fan_in.get(nid, 0), 4),
+                "fan_out":    round(fan_out.get(nid, 0), 4),
+                "complexity": round(cmplx.get(nid, 0), 4),
+                "test_cover": round(test_cov.get(nid, 0), 4),
+                "nbr_bonus":  round(nbr.get(nid, 0), 4),
+                "pagerank":   round(pr.get(nid, 0), 4),
+            },
+        })
+
+    # Where are the GT functions in the full ranking?
+    gt_positions = []
+    for rank, node in enumerate(ranked_nodes, 1):
+        gt_tag = _is_gt(node)
+        if gt_tag:
+            gt_positions.append({
+                "rank": rank,
+                "id": node.node_id,
+                "short": _short(node.node_id),
+                "file": _short_file(node.file_path or ""),
+                "gt": gt_tag,
+                "bm25": round(bm25.get(node.node_id, 0), 4),
+            })
+
+    # Neighbor edges for top-K nodes
+    edges_data = []
+    top_k_ids = {ranked_nodes[i].node_id for i in range(min(top_k, len(ranked_nodes)))}
+    for nid in top_k_ids:
+        for e in graph.out_adj.get(nid, []):
+            if e.kind == EdgeKind.CALLS and e.target_id in graph.nodes:
+                tgt = graph.nodes[e.target_id]
+                edges_data.append({
+                    "src": _short(nid), "tgt": _short(e.target_id),
+                    "kind": "CALLS", "tgt_gt": _is_gt(tgt) if hasattr(tgt, 'node_id') else "",
+                })
+        for e in graph.in_adj.get(nid, []):
+            if e.kind == EdgeKind.CALLS and e.source_id in graph.nodes:
+                src_node = graph.nodes[e.source_id]
+                edges_data.append({
+                    "src": _short(e.source_id), "tgt": _short(nid),
+                    "kind": "CALLS", "tgt_gt": "",
+                })
+
+    trace_data = {
+        "instance_id": instance_id,
+        "query": query,
+        "condition": condition,
+        "intent": intent,
+        "weights": weights,
+        "layer_budgets": layer_budgets,
+        "gt_fns": gt_fns,
+        "gt_files": gt_files,
+        "top_k": top_k,
+        "total_fn_nodes": len(fn_nodes),
+        "match_result": match_result,
+        "ranked": ranked_data,
+        "gt_positions": gt_positions,
+        "edges": edges_data[:200],
+        "stats": {
+            "files":     sum(1 for n in graph.nodes.values() if n.layer == Layer.FILE),
+            "classes":   sum(1 for n in graph.nodes.values() if n.layer == Layer.CLASS),
+            "functions": len(fn_nodes),
+        },
+    }
+
+    _TRACE_DIR.mkdir(exist_ok=True)
+    safe_id = re.sub(r"[^\w\-]", "_", instance_id)
+    out_path = _TRACE_DIR / f"{safe_id}_{condition}.html"
+
+    html = _TRACE_HTML_TEMPLATE.replace("__TRACE_DATA__", json.dumps(trace_data, indent=None))
+    out_path.write_text(html, encoding="utf-8")
+    return str(out_path)
+
+
+_TRACE_HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TACM Trace — __INSTANCE_ID__</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:20px}
+.container{max-width:1400px;margin:0 auto}
+h1{color:#58a6ff;font-size:1.5em}
+h2{color:#58a6ff;font-size:1.15em;margin:22px 0 10px;border-bottom:1px solid #21262d;padding-bottom:6px}
+h3{color:#8b949e;font-size:0.95em;margin:12px 0 6px}
+.subtitle{color:#8b949e;font-size:0.85em;margin-bottom:18px}
+.card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px;margin-bottom:14px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.78em;font-weight:600}
+.b-bug{background:#f8514930;color:#f85149}
+.b-structure{background:#58a6ff30;color:#58a6ff}
+.b-explain{background:#3fb95030;color:#3fb950}
+.b-hit{background:#3fb95025;color:#3fb950;border:1px solid #3fb95050}
+.b-miss{background:#f8514925;color:#f85149;border:1px solid #f8514950}
+.b-gt-strict{background:#da362930;color:#ff7b72}
+.b-gt-lenient{background:#f0883e30;color:#f0883e}
+.b-topk{background:#79c0ff20;color:#79c0ff}
+
+.verdict{font-size:1.8em;font-weight:700;margin:10px 0}
+.verdict.hit{color:#3fb950}
+.verdict.miss{color:#f85149}
+
+.wb{display:flex;align-items:center;gap:8px;margin:3px 0}
+.wb .l{width:85px;font-size:0.82em;text-align:right;color:#8b949e}
+.wb .bg{flex:1;height:16px;background:#21262d;border-radius:3px;overflow:hidden;position:relative}
+.wb .fill{height:100%;border-radius:3px}
+.wb .val{position:absolute;right:5px;top:0;line-height:16px;font-size:0.72em}
+
+table{width:100%;border-collapse:collapse;font-size:0.82em}
+th{text-align:left;padding:5px 7px;border-bottom:2px solid #21262d;color:#8b949e;font-weight:600;position:sticky;top:0;background:#161b22}
+td{padding:4px 7px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+tr.gt-strict td{background:#da362912!important}
+tr.gt-lenient td{background:#f0883e10!important}
+tr.topk-row td{border-left:3px solid #79c0ff}
+.sc{font-family:'Cascadia Code',monospace;font-size:0.8em}
+.mb{display:inline-block;height:9px;border-radius:2px;margin-right:1px;vertical-align:middle}
+
+.gt-box{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px;margin-top:8px}
+.gt-fn{color:#ff7b72;font-family:'Cascadia Code',monospace;font-size:0.85em}
+.gt-file{color:#8b949e;font-size:0.8em}
+.gt-rank{font-weight:700;margin-left:8px}
+.gt-rank.found{color:#3fb950}
+.gt-rank.notfound{color:#f85149}
+
+.signal-legend{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:0.78em}
+.signal-legend span{display:flex;align-items:center;gap:4px}
+.signal-legend .dot{width:10px;height:10px;border-radius:2px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>TACM Diagnostic Trace</h1>
+<div class="subtitle" id="sub"></div>
+
+<!-- Verdict -->
+<div class="card" style="text-align:center">
+  <div id="verdict-text" class="verdict"></div>
+  <div id="verdict-detail" style="color:#8b949e;font-size:0.9em"></div>
+</div>
+
+<!-- Row 1: Intent + Weights + GT -->
+<div class="grid g3">
+  <div class="card">
+    <h3>Intent & Weights</h3>
+    <div style="margin:8px 0"><span id="intent-badge" class="badge"></span></div>
+    <div id="weights-bars"></div>
+  </div>
+  <div class="card">
+    <h3>Ground Truth Functions</h3>
+    <div id="gt-fns"></div>
+  </div>
+  <div class="card">
+    <h3>GT in Ranking</h3>
+    <div id="gt-positions"></div>
+  </div>
+</div>
+
+<!-- Row 2: Ranked table -->
+<h2>Ranked Functions (Top 30)</h2>
+<div class="signal-legend">
+  <span><span class="dot" style="background:#58a6ff"></span>BM25</span>
+  <span><span class="dot" style="background:#f0883e"></span>Fan-In</span>
+  <span><span class="dot" style="background:#d2a8ff"></span>Fan-Out</span>
+  <span><span class="dot" style="background:#f85149"></span>Complexity</span>
+  <span><span class="dot" style="background:#3fb950"></span>Test-Cover</span>
+  <span><span class="dot" style="background:#db61a2"></span>Nbr-Bonus</span>
+  <span><span class="dot" style="background:#f778ba"></span>PageRank</span>
+</div>
+<div class="card" style="max-height:600px;overflow-y:auto">
+  <table><thead id="rank-head"></thead><tbody id="rank-body"></tbody></table>
+</div>
+
+<!-- Row 3: Signal comparison for GT vs top-1 -->
+<h2>Signal Deep-Dive: GT vs Top Ranked</h2>
+<div class="grid g2" id="compare-panels"></div>
+
+</div>
+
+<script>
+const D = __TRACE_DATA__;
+
+// Subtitle
+document.getElementById('sub').textContent =
+  `Instance: ${D.instance_id}  |  Query: "${D.query}"  |  Condition: ${D.condition}  |  ${D.total_fn_nodes} functions`;
+
+// Verdict
+const v = document.getElementById('verdict-text');
+const vd = document.getElementById('verdict-detail');
+if (D.match_result.strict_rank) {
+  v.className = 'verdict hit';
+  v.textContent = `FN-HIT @ rank ${D.match_result.strict_rank}`;
+  vd.textContent = `GT function found in top-${D.top_k}. ` +
+    `File rank: ${D.match_result.file_rank || 'n/a'}. Tokens: ${D.match_result.top_k_tokens}`;
+} else {
+  v.className = 'verdict miss';
+  v.textContent = 'FN-MISS';
+  const closest = D.gt_positions.length ? D.gt_positions[0] : null;
+  vd.textContent = closest
+    ? `Closest GT "${closest.short}" at rank ${closest.rank} (needed ≤${D.top_k}). BM25=${closest.bm25}`
+    : 'No GT function found in ranking at all.';
+}
+
+// Intent
+const ib = document.getElementById('intent-badge');
+ib.textContent = D.intent.toUpperCase();
+ib.className = 'badge b-' + D.intent;
+
+// Weights
+const wDiv = document.getElementById('weights-bars');
+const wColors = {bm25:'#58a6ff',fan_in:'#f0883e',fan_out:'#d2a8ff',complexity:'#f85149',test_cover:'#3fb950'};
+for (const [k, val] of Object.entries(D.weights)) {
+  const pct = (val * 100).toFixed(0);
+  wDiv.innerHTML += `<div class="wb"><div class="l">${k}</div><div class="bg"><div class="fill" style="width:${pct}%;background:${wColors[k]}"></div><div class="val">${pct}%</div></div></div>`;
+}
+
+// GT functions
+const gtDiv = document.getElementById('gt-fns');
+D.gt_fns.forEach(fn => {
+  gtDiv.innerHTML += `<div style="margin:4px 0"><span class="gt-fn">${fn}</span></div>`;
+});
+D.gt_files.forEach(f => {
+  gtDiv.innerHTML += `<div><span class="gt-file">📄 ${f}</span></div>`;
+});
+
+// GT positions in ranking
+const gpDiv = document.getElementById('gt-positions');
+if (!D.gt_positions.length) {
+  gpDiv.innerHTML = '<div style="color:#f85149;font-weight:600">No GT functions found in ranking!</div>';
+} else {
+  D.gt_positions.forEach(p => {
+    const cls = p.rank <= D.top_k ? 'found' : 'notfound';
+    const tag = p.rank <= D.top_k ? '✓ IN TOP-K' : `✗ outside (need ≤${D.top_k})`;
+    gpDiv.innerHTML += `<div style="margin:4px 0"><span class="gt-fn">${p.short}</span><span class="gt-rank ${cls}"> rank ${p.rank} ${tag}</span><br><span class="gt-file">${p.file} | bm25=${p.bm25}</span></div>`;
+  });
+}
+
+// Signal mini-bar helper
+function sbar(v, color, maxW) {
+  const w = Math.max(1, v * maxW);
+  return `<span class="mb" style="width:${w}px;background:${color}" title="${v}"></span>`;
+}
+
+// Ranked table
+document.getElementById('rank-head').innerHTML =
+  '<tr><th>#</th><th>Function</th><th>File</th><th>Tok</th><th>BM25</th><th>Fan-In</th><th>Fan-Out</th><th>Cmplx</th><th>Test</th><th>Nbr</th><th>PR</th><th>Tag</th></tr>';
+const tbody = document.getElementById('rank-body');
+D.ranked.forEach(r => {
+  let cls = '';
+  if (r.gt === 'strict') cls = 'gt-strict';
+  else if (r.gt === 'lenient') cls = 'gt-lenient';
+  if (r.in_topk) cls += ' topk-row';
+  const s = r.signals;
+  let tags = '';
+  if (r.in_topk) tags += '<span class="badge b-topk">TOP-K</span> ';
+  if (r.gt === 'strict') tags += '<span class="badge b-gt-strict">GT</span>';
+  else if (r.gt === 'lenient') tags += '<span class="badge b-gt-lenient">GT~</span>';
+
+  tbody.innerHTML += `<tr class="${cls}">
+    <td>${r.rank}</td>
+    <td title="${r.id}">${r.short}</td>
+    <td style="color:#8b949e;font-size:0.78em">${r.file}:${r.line}</td>
+    <td>${r.tokens}</td>
+    <td class="sc">${sbar(s.bm25,'#58a6ff',55)} ${s.bm25.toFixed(3)}</td>
+    <td class="sc">${sbar(s.fan_in,'#f0883e',55)} ${s.fan_in.toFixed(3)}</td>
+    <td class="sc">${sbar(s.fan_out,'#d2a8ff',55)} ${s.fan_out.toFixed(3)}</td>
+    <td class="sc">${sbar(s.complexity,'#f85149',55)} ${s.complexity.toFixed(3)}</td>
+    <td class="sc">${sbar(s.test_cover,'#3fb950',55)} ${s.test_cover.toFixed(3)}</td>
+    <td class="sc">${sbar(s.nbr_bonus,'#db61a2',55)} ${s.nbr_bonus.toFixed(3)}</td>
+    <td class="sc">${sbar(s.pagerank,'#f778ba',55)} ${s.pagerank.toFixed(3)}</td>
+    <td>${tags}</td>
+  </tr>`;
+});
+
+// Compare: GT vs Top-1
+const cp = document.getElementById('compare-panels');
+function makeCompareCard(title, data, highlight) {
+  if (!data) return '<div class="card" style="color:#8b949e">N/A</div>';
+  const s = data.signals;
+  let html = `<div class="card"><h3>${title}: ${data.short}</h3><div style="font-size:0.78em;color:#8b949e;margin-bottom:8px">${data.file}:${data.line}</div>`;
+  const sigs = [
+    ['BM25', s.bm25, '#58a6ff'], ['Fan-In', s.fan_in, '#f0883e'], ['Fan-Out', s.fan_out, '#d2a8ff'],
+    ['Complexity', s.complexity, '#f85149'], ['Test-Cover', s.test_cover, '#3fb950'],
+    ['Nbr-Bonus', s.nbr_bonus, '#db61a2'], ['PageRank', s.pagerank, '#f778ba'],
+  ];
+  sigs.forEach(([name, val, color]) => {
+    const pct = (val * 100).toFixed(1);
+    html += `<div class="wb"><div class="l">${name}</div><div class="bg"><div class="fill" style="width:${pct}%;background:${color}"></div><div class="val">${val.toFixed(4)}</div></div></div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+const top1 = D.ranked.length ? D.ranked[0] : null;
+const gtEntry = D.ranked.find(r => r.gt === 'strict') || D.ranked.find(r => r.gt === 'lenient');
+cp.innerHTML = makeCompareCard('Top-1 Ranked', top1, false) + makeCompareCard('Ground Truth', gtEntry, true);
+</script>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
 # Core: single instance × single condition
 # ---------------------------------------------------------------------------
 
@@ -467,20 +1061,28 @@ def _run_condition(
     condition: str,
     instance: dict,
     repo_path: Path,
+    gt_fns: list[str],
     gt_files: list[str],
     top_k: int,
     no_exec: bool,
     graph,
     fn_nodes: list,
+    trace: bool = False,
 ) -> dict:
     """
-    Retrieve under one condition, check hit, optionally apply patch + run tests.
-    graph and fn_nodes are built once per instance and shared across conditions.
-    Returns a result dict.
+    Retrieve under one condition, evaluate function-level GT match,
+    optionally apply patch + run tests.
+    Returns a result dict with function-level metrics as primary.
     """
+    iid = instance.get("instance_id", str(instance.get("id", "?")))
     result = dict(
         condition=condition,
-        retrieval_hit=False,
+        fn_hit=False,
+        fn_strict_rank=None,
+        fn_lenient_rank=None,
+        file_hit=False,
+        file_rank=None,
+        top_k_tokens=0,
         patch_applied=False,
         tests_passed=False,
         solved=False,
@@ -494,14 +1096,34 @@ def _run_condition(
         result["skip_reason"] = "retrieval_failed"
         return result
 
-    retrieved_files = _node_files(ranked, repo_path, top_k)
-    hit = _retrieval_hit(retrieved_files, gt_files)
-    result["retrieval_hit"] = hit
+    # Function-level matching (primary metric)
+    match = _match_ranked_functions(ranked, gt_fns, gt_files, top_k)
+    result["fn_strict_rank"] = match["strict_rank"]
+    result["fn_lenient_rank"] = match["lenient_rank"]
+    result["file_rank"] = match["file_rank"]
+    result["top_k_tokens"] = match["top_k_tokens"]
+    result["fn_hit"] = match["strict_rank"] is not None
+    result["file_hit"] = match["file_rank"] is not None
 
-    status = "HIT " if hit else "MISS"
-    print(f"    [{condition}] {status}  top-files: {retrieved_files[:3]}")
+    # Generate diagnostic trace for TACM conditions
+    if trace and condition.startswith("tacm"):
+        try:
+            trace_path = _generate_tacm_trace(
+                iid, instance["query"], condition,
+                graph, fn_nodes, ranked, gt_fns, gt_files,
+                top_k, match,
+            )
+            print(f"    [{condition}] trace → {trace_path}")
+        except Exception as e:
+            print(f"    [{condition}] trace generation failed: {e}")
 
-    if no_exec or not hit:
+    # Display
+    fn_status = f"FN-HIT@{match['strict_rank']}" if match["strict_rank"] else "FN-MISS"
+    file_tag = f"file@{match['file_rank']}" if match["file_rank"] else "file-miss"
+    tok_tag = f"{match['top_k_tokens']}tok"
+    print(f"    [{condition}] {fn_status}  {file_tag}  {tok_tag}")
+
+    if no_exec or not result["fn_hit"]:
         return result
 
     # Apply patch + verify
@@ -529,20 +1151,29 @@ def run_instance(
     conditions: list[str],
     no_exec: bool,
     top_k: int,
+    trace: bool = False,
 ) -> list[dict]:
     """Clone once, run all conditions, return list of per-condition result dicts."""
     iid = instance.get("instance_id", str(instance.get("id", "?")))
     print(f"\n--- {iid} [{instance.get('language','?')}] ---")
 
-    gt_files = _extract_gt_files(instance.get("patch", ""))
-    if not gt_files:
-        print("  ⚠  No GT files in patch — skipping")
-        return [dict(instance_id=iid, repo=instance["repo"],
-                     language=instance.get("language", "?"),
-                     condition=c, retrieval_hit=False, patch_applied=False,
-                     tests_passed=False, solved=False,
-                     skip_reason="no_gt_files") for c in conditions]
+    gt_fns, gt_files, gt_classes = _extract_gt_functions(instance.get("patch", ""))
+    if not gt_fns:
+        # Fall back to file-level only if no functions extracted
+        gt_files_fallback = _extract_gt_files(instance.get("patch", ""))
+        if not gt_files_fallback:
+            print("  ⚠  No GT in patch — skipping")
+            return [dict(instance_id=iid, repo=instance["repo"],
+                         language=instance.get("language", "?"),
+                         condition=c, fn_hit=False, fn_strict_rank=None,
+                         fn_lenient_rank=None, file_hit=False, file_rank=None,
+                         top_k_tokens=0, patch_applied=False,
+                         tests_passed=False, solved=False,
+                         skip_reason="no_gt") for c in conditions]
+        print(f"  ⚠  No GT functions — file-only GT: {gt_files_fallback}")
+        gt_files = gt_files_fallback
 
+    print(f"  GT functions: {gt_fns[:5]}{'...' if len(gt_fns) > 5 else ''}")
     print(f"  GT files: {gt_files}")
 
     base_result = dict(instance_id=iid, repo=instance["repo"], language=instance.get("language", "?"))
@@ -588,7 +1219,7 @@ def run_instance(
 
         condition_results = []
         for condition in conditions:
-            r = _run_condition(condition, instance, repo_path, gt_files, top_k, no_exec, graph, fn_nodes)
+            r = _run_condition(condition, instance, repo_path, gt_fns, gt_files, top_k, no_exec, graph, fn_nodes, trace=trace)
             condition_results.append({**base_result, **r})
 
             # Reset repo between conditions if patch was applied
@@ -609,6 +1240,7 @@ def run_benchmark(
     python_only: bool = False,
     limit: int | None = None,
     top_k: int = TOP_K,
+    trace: bool = False,
 ) -> None:
     with open(dataset_path) as f:
         dataset = json.load(f)
@@ -622,30 +1254,49 @@ def run_benchmark(
 
     all_results: list[dict] = []
     for instance in dataset:
-        results = run_instance(instance, conditions, no_exec, top_k)
+        results = run_instance(instance, conditions, no_exec, top_k, trace=trace)
         all_results.extend(results)
 
     # ---- Per-condition summary ----
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print(f"Dataset : {dataset_path}  |  Mode: {'retrieval-only' if no_exec else 'full solve'}")
-    print(f"{'='*60}")
-    print(f"{'Condition':<16} {'N':>4} {'Skipped':>7} {'Hit@K':>7}" + ("  Solved" if not no_exec else ""))
-    print(f"{'-'*60}")
+    print(f"Top-K   : {top_k}")
+    print(f"{'='*70}")
+    print(f"{'Condition':<16} {'N':>4} {'Skip':>5}  {'Fn-Hit%':>7} {'Fn-MRR':>7} {'File%':>6} {'AvgTok':>7}" + ("  Solved" if not no_exec else ""))
+    print(f"{'-'*70}")
 
     for cond in conditions:
         rows = [r for r in all_results if r["condition"] == cond]
-        valid = [r for r in rows if r["skip_reason"] is None]
+        valid = [r for r in rows if r.get("skip_reason") is None]
         skipped = len(rows) - len(valid)
         n = len(valid)
-        hits = sum(1 for r in valid if r["retrieval_hit"])
-        hit_pct = f"{hits/n:.1%}" if n else "—"
-        line = f"{cond:<16} {n:>4} {skipped:>7} {hit_pct:>7}"
+
+        # Function-level metrics (PRIMARY)
+        fn_hits = sum(1 for r in valid if r.get("fn_hit"))
+        fn_hit_pct = f"{fn_hits/n:.1%}" if n else "—"
+
+        # MRR over strict function rank
+        fn_rr = [
+            (1.0 / r["fn_strict_rank"]) if r.get("fn_strict_rank") else 0.0
+            for r in valid
+        ]
+        fn_mrr = f"{sum(fn_rr)/len(fn_rr):.4f}" if fn_rr else "—"
+
+        # File-level (secondary reference)
+        file_hits = sum(1 for r in valid if r.get("file_hit"))
+        file_pct = f"{file_hits/n:.0%}" if n else "—"
+
+        # Token efficiency
+        tok_vals = [r.get("top_k_tokens", 0) for r in valid]
+        avg_tok = f"{sum(tok_vals)/len(tok_vals):.0f}" if tok_vals else "—"
+
+        line = f"{cond:<16} {n:>4} {skipped:>5}  {fn_hit_pct:>7} {fn_mrr:>7} {file_pct:>6} {avg_tok:>7}"
         if not no_exec:
-            solved = sum(1 for r in valid if r["solved"])
+            solved = sum(1 for r in valid if r.get("solved"))
             line += f"  {solved/n:.1%}" if n else "  —"
         print(line)
 
-    print(f"{'='*60}")
+    print(f"{'='*70}")
 
 
 # ---------------------------------------------------------------------------
@@ -680,6 +1331,10 @@ if __name__ == "__main__":
         "--top-k", type=int, default=TOP_K,
         help=f"Files to retrieve per query (default: {TOP_K})",
     )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help="Generate per-instance HTML diagnostic traces for TACM conditions (saved to tacm_traces/)",
+    )
     args = parser.parse_args()
 
     # Parse conditions
@@ -700,4 +1355,5 @@ if __name__ == "__main__":
         python_only=args.python_only,
         limit=args.limit,
         top_k=args.top_k,
+        trace=args.trace,
     )

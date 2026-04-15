@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>TACM Trace — __INSTANCE_ID__</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:20px}
+.container{max-width:1400px;margin:0 auto}
+h1{color:#58a6ff;font-size:1.5em}
+h2{color:#58a6ff;font-size:1.15em;margin:22px 0 10px;border-bottom:1px solid #21262d;padding-bottom:6px}
+h3{color:#8b949e;font-size:0.95em;margin:12px 0 6px}
+.subtitle{color:#8b949e;font-size:0.85em;margin-bottom:18px}
+.card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:14px;margin-bottom:14px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.78em;font-weight:600}
+.b-bug{background:#f8514930;color:#f85149}
+.b-structure{background:#58a6ff30;color:#58a6ff}
+.b-explain{background:#3fb95030;color:#3fb950}
+.b-hit{background:#3fb95025;color:#3fb950;border:1px solid #3fb95050}
+.b-miss{background:#f8514925;color:#f85149;border:1px solid #f8514950}
+.b-gt-strict{background:#da362930;color:#ff7b72}
+.b-gt-lenient{background:#f0883e30;color:#f0883e}
+.b-topk{background:#79c0ff20;color:#79c0ff}
+
+.verdict{font-size:1.8em;font-weight:700;margin:10px 0}
+.verdict.hit{color:#3fb950}
+.verdict.miss{color:#f85149}
+
+.wb{display:flex;align-items:center;gap:8px;margin:3px 0}
+.wb .l{width:85px;font-size:0.82em;text-align:right;color:#8b949e}
+.wb .bg{flex:1;height:16px;background:#21262d;border-radius:3px;overflow:hidden;position:relative}
+.wb .fill{height:100%;border-radius:3px}
+.wb .val{position:absolute;right:5px;top:0;line-height:16px;font-size:0.72em}
+
+table{width:100%;border-collapse:collapse;font-size:0.82em}
+th{text-align:left;padding:5px 7px;border-bottom:2px solid #21262d;color:#8b949e;font-weight:600;position:sticky;top:0;background:#161b22}
+td{padding:4px 7px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+tr.gt-strict td{background:#da362912!important}
+tr.gt-lenient td{background:#f0883e10!important}
+tr.topk-row td{border-left:3px solid #79c0ff}
+.sc{font-family:'Cascadia Code',monospace;font-size:0.8em}
+.mb{display:inline-block;height:9px;border-radius:2px;margin-right:1px;vertical-align:middle}
+
+.gt-box{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:12px;margin-top:8px}
+.gt-fn{color:#ff7b72;font-family:'Cascadia Code',monospace;font-size:0.85em}
+.gt-file{color:#8b949e;font-size:0.8em}
+.gt-rank{font-weight:700;margin-left:8px}
+.gt-rank.found{color:#3fb950}
+.gt-rank.notfound{color:#f85149}
+
+.signal-legend{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0;font-size:0.78em}
+.signal-legend span{display:flex;align-items:center;gap:4px}
+.signal-legend .dot{width:10px;height:10px;border-radius:2px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>TACM Diagnostic Trace</h1>
+<div class="subtitle" id="sub"></div>
+
+<!-- Verdict -->
+<div class="card" style="text-align:center">
+  <div id="verdict-text" class="verdict"></div>
+  <div id="verdict-detail" style="color:#8b949e;font-size:0.9em"></div>
+</div>
+
+<!-- Row 1: Intent + Weights + GT -->
+<div class="grid g3">
+  <div class="card">
+    <h3>Intent & Weights</h3>
+    <div style="margin:8px 0"><span id="intent-badge" class="badge"></span></div>
+    <div id="weights-bars"></div>
+  </div>
+  <div class="card">
+    <h3>Ground Truth Functions</h3>
+    <div id="gt-fns"></div>
+  </div>
+  <div class="card">
+    <h3>GT in Ranking</h3>
+    <div id="gt-positions"></div>
+  </div>
+</div>
+
+<!-- Row 2: Ranked table -->
+<h2>Ranked Functions (Top 30)</h2>
+<div class="signal-legend">
+  <span><span class="dot" style="background:#58a6ff"></span>BM25</span>
+  <span><span class="dot" style="background:#f0883e"></span>Fan-In</span>
+  <span><span class="dot" style="background:#d2a8ff"></span>Fan-Out</span>
+  <span><span class="dot" style="background:#f85149"></span>Complexity</span>
+  <span><span class="dot" style="background:#3fb950"></span>Test-Cover</span>
+  <span><span class="dot" style="background:#db61a2"></span>Nbr-Bonus</span>
+  <span><span class="dot" style="background:#f778ba"></span>PageRank</span>
+</div>
+<div class="card" style="max-height:600px;overflow-y:auto">
+  <table><thead id="rank-head"></thead><tbody id="rank-body"></tbody></table>
+</div>
+
+<!-- Row 3: Signal comparison for GT vs top-1 -->
+<h2>Signal Deep-Dive: GT vs Top Ranked</h2>
+<div class="grid g2" id="compare-panels"></div>
+
+</div>
+
+<script>
+const D = {"instance_id": "astropy__astropy-12907", "query": "Modeling's `separability_matrix` does not compute separability correctly for nested CompoundModels\nConsider the following model:\r\n\r\n```python\r\nfrom astropy.modeling import models as m\r\nfrom astropy.modeling.separable import separability_matrix\r\n\r\ncm = m.Linear1D(10) & m.Linear1D(5)\r\n```\r\n\r\nIt's separability matrix as you might expect is a diagonal:\r\n\r\n```python\r\n>>> separability_matrix(cm)\r\narray([[ True, False],\r\n       [False,  True]])\r\n```\r\n\r\nIf I make the model more complex:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & m.Linear1D(10) & m.Linear1D(5))\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True, False],\r\n       [False, False, False,  True]])\r\n```\r\n\r\nThe output matrix is again, as expected, the outputs and inputs to the linear models are separable and independent of each other.\r\n\r\nIf however, I nest these compound models:\r\n```python\r\n>>> separability_matrix(m.Pix2Sky_TAN() & cm)\r\narray([[ True,  True, False, False],\r\n       [ True,  True, False, False],\r\n       [False, False,  True,  True],\r\n       [False, False,  True,  True]])\r\n```\r\nSuddenly the inputs and outputs are no longer separable?\r\n\r\nThis feels like a bug to me, but I might be missing something?\n", "condition": "tacm", "intent": "bug", "weights": {"bm25": 0.5, "fan_in": 0.25, "fan_out": 0.1, "complexity": 0.15, "test_cover": 0.0}, "layer_budgets": {"file": 0.05, "class": 0.2, "function": 0.75}, "gt_fns": ["_cstack"], "gt_files": ["astropy/modeling/separable.py"], "top_k": 5, "total_fn_nodes": 11341, "match_result": {"strict_rank": null, "lenient_rank": null, "file_rank": 1, "top_k_tokens": 2416}, "ranked": [{"rank": 1, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\separable.py::separability_matrix", "short": "separability_matrix", "file": "astropy\\modeling\\separable.py", "line": 66, "tokens": 373, "in_topk": true, "gt": "", "signals": {"bm25": 1.0, "fan_in": 0.0, "fan_out": 0.0367, "complexity": 0.0207, "test_cover": 0.0, "nbr_bonus": 0.0012, "pagerank": 0.2748}}, {"rank": 2, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\separable.py::is_separable", "short": "is_separable", "file": "astropy\\modeling\\separable.py", "line": 27, "tokens": 329, "in_topk": true, "gt": "", "signals": {"bm25": 0.7774, "fan_in": 0.0, "fan_out": 0.1193, "complexity": 0.0183, "test_cover": 0.0, "nbr_bonus": 0.0041, "pagerank": 0.2748}}, {"rank": 3, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\table\\table.py::TableColumns.isinstance", "short": "TableColumns.isinstance", "file": "astropy\\table\\table.py", "line": 308, "tokens": 128, "in_topk": true, "gt": "", "signals": {"bm25": 0.0458, "fan_in": 1.0, "fan_out": 0.0092, "complexity": 0.0071, "test_cover": 0.0, "nbr_bonus": 1.0, "pagerank": 1.0}}, {"rank": 4, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\header.py::Header.append", "short": "Header.append", "file": "io\\fits\\header.py", "line": 1156, "tokens": 912, "in_topk": true, "gt": "", "signals": {"bm25": 0.2936, "fan_in": 0.5555, "fan_out": 0.2294, "complexity": 0.0507, "test_cover": 0.0, "nbr_bonus": 0.5893, "pagerank": 0.3603}}, {"rank": 5, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\convenience.py::append", "short": "append", "file": "io\\fits\\convenience.py", "line": 620, "tokens": 674, "in_topk": true, "gt": "", "signals": {"bm25": 0.2418, "fan_in": 0.5447, "fan_out": 0.1468, "complexity": 0.0375, "test_cover": 0.0, "nbr_bonus": 0.5707, "pagerank": 0.3519}}, {"rank": 6, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\cextern\\cfitsio\\lib\\fitscore.c::ffpmsg", "short": "ffpmsg", "file": "cfitsio\\lib\\fitscore.c", "line": 670, "tokens": 33, "in_topk": false, "gt": "", "signals": {"bm25": 0.0069, "fan_in": 0.8942, "fan_out": 0.0092, "complexity": 0.0018, "test_cover": 0.0, "nbr_bonus": 0.7271, "pagerank": 0.8916}}, {"rank": 7, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\hdu\\compressed.py::CompImageHeader.append", "short": "CompImageHeader.append", "file": "fits\\hdu\\compressed.py", "line": 174, "tokens": 414, "in_topk": false, "gt": "", "signals": {"bm25": 0.2225, "fan_in": 0.5498, "fan_out": 0.1101, "complexity": 0.023, "test_cover": 0.0, "nbr_bonus": 0.5779, "pagerank": 0.3529}}, {"rank": 8, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\coordinates\\earth_orientation.py::nutation_matrix", "short": "nutation_matrix", "file": "astropy\\coordinates\\earth_orientation.py", "line": 399, "tokens": 133, "in_topk": false, "gt": "", "signals": {"bm25": 0.5547, "fan_in": 0.0, "fan_out": 0.0275, "complexity": 0.0074, "test_cover": 0.0, "nbr_bonus": 0.0017, "pagerank": 0.2748}}, {"rank": 9, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\fitting.py::LinearLSQFitter._is_invertible", "short": "LinearLSQFitter._is_invertible", "file": "astropy\\modeling\\fitting.py", "line": 373, "tokens": 60, "in_topk": false, "gt": "", "signals": {"bm25": 0.5489, "fan_in": 0.0005, "fan_out": 0.0092, "complexity": 0.0033, "test_cover": 0.0, "nbr_bonus": 0.0011, "pagerank": 0.2748}}, {"rank": 10, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\convolution\\convolve.py::convolve_fft", "short": "convolve_fft", "file": "astropy\\convolution\\convolve.py", "line": 442, "tokens": 5127, "in_topk": false, "gt": "", "signals": {"bm25": 0.3693, "fan_in": 0.0, "fan_out": 0.3578, "complexity": 0.2852, "test_cover": 0.0, "nbr_bonus": 0.0158, "pagerank": 0.2748}}, {"rank": 11, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\separable.py::_separable", "short": "_separable", "file": "astropy\\modeling\\separable.py", "line": 290, "tokens": 209, "in_topk": false, "gt": "", "signals": {"bm25": 0.5107, "fan_in": 0.001, "fan_out": 0.0367, "complexity": 0.0116, "test_cover": 0.0, "nbr_bonus": 0.0092, "pagerank": 0.2752}}, {"rank": 12, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\data.py::get_readable_fileobj", "short": "get_readable_fileobj", "file": "astropy\\utils\\data.py", "line": 166, "tokens": 2288, "in_topk": false, "gt": "", "signals": {"bm25": 0.301, "fan_in": 0.0067, "fan_out": 0.8257, "complexity": 0.1273, "test_cover": 0.0, "nbr_bonus": 0.1085, "pagerank": 0.2777}}, {"rank": 13, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\units\\quantity_helper\\function_helpers.py::append", "short": "append", "file": "units\\quantity_helper\\function_helpers.py", "line": 477, "tokens": 39, "in_topk": false, "gt": "", "signals": {"bm25": 0.1434, "fan_in": 0.5467, "fan_out": 0.0092, "complexity": 0.0022, "test_cover": 0.0, "nbr_bonus": 0.5655, "pagerank": 0.3523}}, {"rank": 14, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\extern\\ply\\yacc.py::yacc", "short": "yacc", "file": "extern\\ply\\yacc.py", "line": 3216, "tokens": 2583, "in_topk": false, "gt": "", "signals": {"bm25": 0.2883, "fan_in": 0.0021, "fan_out": 0.8349, "complexity": 0.1437, "test_cover": 0.0, "nbr_bonus": 0.0657, "pagerank": 0.2769}}, {"rank": 15, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\core.py::Model._calculate_separability_matrix", "short": "Model._calculate_separability_matrix", "file": "astropy\\modeling\\core.py", "line": 808, "tokens": 80, "in_topk": false, "gt": "", "signals": {"bm25": 0.4996, "fan_in": 0.0005, "fan_out": 0.0, "complexity": 0.0044, "test_cover": 0.0, "nbr_bonus": 0.0015, "pagerank": 0.2751}}, {"rank": 16, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\data.py::_download_file_from_source", "short": "_download_file_from_source", "file": "astropy\\utils\\data.py", "line": 1127, "tokens": 1012, "in_topk": false, "gt": "", "signals": {"bm25": 0.3153, "fan_in": 0.0005, "fan_out": 0.8165, "complexity": 0.0563, "test_cover": 0.0, "nbr_bonus": 0.0268, "pagerank": 0.2748}}, {"rank": 17, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\votable\\tree.py::VOTableFile.to_xml", "short": "VOTableFile.to_xml", "file": "io\\votable\\tree.py", "line": 3627, "tokens": 783, "in_topk": false, "gt": "", "signals": {"bm25": 0.3598, "fan_in": 0.0005, "fan_out": 0.6055, "complexity": 0.0436, "test_cover": 0.0, "nbr_bonus": 0.0305, "pagerank": 0.2752}}, {"rank": 18, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\wcs\\utils.py::_split_matrix", "short": "_split_matrix", "file": "astropy\\wcs\\utils.py", "line": 735, "tokens": 367, "in_topk": false, "gt": "", "signals": {"bm25": 0.4492, "fan_in": 0.0005, "fan_out": 0.2018, "complexity": 0.0204, "test_cover": 0.0, "nbr_bonus": 0.0113, "pagerank": 0.2748}}, {"rank": 19, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\masked\\tests\\test_masked.py::ArraySetup.setup_class", "short": "ArraySetup.setup_class", "file": "masked\\tests\\test_masked.py", "line": 34, "tokens": 243, "in_topk": false, "gt": "", "signals": {"bm25": 0.4598, "fan_in": 0.0003, "fan_out": 0.1468, "complexity": 0.0135, "test_cover": 0.0, "nbr_bonus": 0.0219, "pagerank": 0.2795}}, {"rank": 20, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\math_functions.py::ufunc_model", "short": "ufunc_model", "file": "astropy\\modeling\\math_functions.py", "line": 47, "tokens": 183, "in_topk": false, "gt": "", "signals": {"bm25": 0.4824, "fan_in": 0.0, "fan_out": 0.0367, "complexity": 0.0102, "test_cover": 0.0, "nbr_bonus": 0.0004, "pagerank": 0.2748}}, {"rank": 21, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\votable\\converters.py::Boolean.parse", "short": "Boolean.parse", "file": "io\\votable\\converters.py", "line": 1196, "tokens": 173, "in_topk": false, "gt": "", "signals": {"bm25": 0.4735, "fan_in": 0.0007, "fan_out": 0.0092, "complexity": 0.0096, "test_cover": 0.0, "nbr_bonus": 0.0111, "pagerank": 0.2753}}, {"rank": 22, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\masked\\tests\\test_table.py::MaskedQuantityTableSetup.setup_arrays", "short": "MaskedQuantityTableSetup.setup_arrays", "file": "masked\\tests\\test_table.py", "line": 38, "tokens": 31, "in_topk": false, "gt": "", "signals": {"bm25": 0.4696, "fan_in": 0.0, "fan_out": 0.0459, "complexity": 0.0017, "test_cover": 0.0, "nbr_bonus": 0.0039, "pagerank": 0.2748}}, {"rank": 23, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\ascii\\ui.py::write", "short": "write", "file": "io\\ascii\\ui.py", "line": 797, "tokens": 575, "in_topk": false, "gt": "", "signals": {"bm25": 0.2474, "fan_in": 0.1322, "fan_out": 0.5963, "complexity": 0.032, "test_cover": 0.0, "nbr_bonus": 0.2132, "pagerank": 0.2806}}, {"rank": 24, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\extern\\configobj\\configobj.py::Section.as_bool", "short": "Section.as_bool", "file": "extern\\configobj\\configobj.py", "line": 925, "tokens": 337, "in_topk": false, "gt": "", "signals": {"bm25": 0.4654, "fan_in": 0.0, "fan_out": 0.0092, "complexity": 0.0187, "test_cover": 0.0, "nbr_bonus": 0.0011, "pagerank": 0.2748}}, {"rank": 25, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\header.py::Header.tofile", "short": "Header.tofile", "file": "io\\fits\\header.py", "line": 703, "tokens": 528, "in_topk": false, "gt": "", "signals": {"bm25": 0.3338, "fan_in": 0.0026, "fan_out": 0.6055, "complexity": 0.0294, "test_cover": 0.0, "nbr_bonus": 0.021, "pagerank": 0.2766}}, {"rank": 26, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\masked\\tests\\test_function_helpers.py::TestSpaceFunctions.setup_class", "short": "TestSpaceFunctions.setup_class", "file": "masked\\tests\\test_function_helpers.py", "line": 958, "tokens": 95, "in_topk": false, "gt": "", "signals": {"bm25": 0.4505, "fan_in": 0.0, "fan_out": 0.0642, "complexity": 0.0053, "test_cover": 0.0, "nbr_bonus": 0.0061, "pagerank": 0.2748}}, {"rank": 27, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\connect.py::read_table_fits", "short": "read_table_fits", "file": "io\\fits\\connect.py", "line": 114, "tokens": 1958, "in_topk": false, "gt": "", "signals": {"bm25": 0.3653, "fan_in": 0.0, "fan_out": 0.3119, "complexity": 0.1089, "test_cover": 0.0, "nbr_bonus": 0.027, "pagerank": 0.2748}}, {"rank": 28, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\io\\fits\\header.py::Header.extend", "short": "Header.extend", "file": "io\\fits\\header.py", "line": 1246, "tokens": 1097, "in_topk": false, "gt": "", "signals": {"bm25": 0.3962, "fan_in": 0.0594, "fan_out": 0.0275, "complexity": 0.061, "test_cover": 0.0, "nbr_bonus": 0.0743, "pagerank": 0.2927}}, {"rank": 29, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\utils\\data.py::import_file_to_cache", "short": "import_file_to_cache", "file": "astropy\\utils\\data.py", "line": 1893, "tokens": 699, "in_topk": false, "gt": "", "signals": {"bm25": 0.2783, "fan_in": 0.001, "fan_out": 0.789, "complexity": 0.0389, "test_cover": 0.0, "nbr_bonus": 0.0292, "pagerank": 0.2749}}, {"rank": 30, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\extern\\jquery\\data\\js\\jquery.dataTables.js::DataTable", "short": "DataTable", "file": "data\\js\\jquery.dataTables.js", "line": 94, "tokens": 10099, "in_topk": false, "gt": "", "signals": {"bm25": 0.0967, "fan_in": 0.0, "fan_out": 0.8716, "complexity": 0.5617, "test_cover": 0.0, "nbr_bonus": 0.0598, "pagerank": 0.2748}}], "gt_positions": [{"rank": 604, "id": "C:\\Users\\PRABHA~1.SAX\\AppData\\Local\\Temp\\tmpw2uc_ebf\\astropy\\astropy\\modeling\\separable.py::_cstack", "short": "_cstack", "file": "astropy\\modeling\\separable.py", "gt": "strict", "bm25": 0.2338}], "edges": [{"src": "is_separable", "tgt": "Kernel.array", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "CustomKernel.array", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "Column.array", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "NDUncertainty.array", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "array", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "_separable", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "BaseRepresentation.sum", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "CartesianRepresentation.sum", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "UnitSphericalRepresentation.sum", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "FunctionQuantity.sum", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "SlicedIndex.where", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "where", "kind": "CALLS", "tgt_gt": ""}, {"src": "is_separable", "tgt": "where", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_separable", "tgt": "is_separable", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TableColumns.isinstance", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Card", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TestFormat.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TestFormatWithMaskedElements.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Table.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "BaseColumn.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TimeBase.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "MplTimeConverter.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "AngleFormatterLocator.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "ScalarFormatterLocator.format", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Header.insert", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Header._updateindices", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Card.normalize_keyword", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "BST.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Index.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "SlicedIndex.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "ColumnOrderList.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "SCEngine.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "SortedArray.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Table.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TimeBase.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "MaskedNDArray.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "TickLabels.sort", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Header._countblanks", "kind": "CALLS", "tgt_gt": ""}, {"src": "Header.append", "tgt": "Header._useblanks", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigItem.__call__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_no_home", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_set_c", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "discretize_integrate_1D", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "sexagesimal_to_string", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseCoordinateFrame.__init__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseCoordinateFrame._get_representation_info", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseCoordinateFrame._frame_attrs_repr", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "make_transform_graph_docs", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "EarthLocation.gravitational_redshift", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_load_nutation_data", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_concatenate_components", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "search_around_3d", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "search_around_sky", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "get_icrs_coordinates", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseRepresentationOrDifferential.__init__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseRepresentationOrDifferential.shape", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseRepresentation._scale_operation", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "SiteRegistry.add_site", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_parse_coordinate_arg", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "SpectralCoord.__repr__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ref_fk4_no_e_fk4", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ref_fk4_no_e_fk5", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ref_galactic_fk4", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ref_icrs_fk5", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_fk4_no_e_fk4", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_fk4_no_e_fk5", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_galactic_fk4", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_icrs_fk5", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_concatenate_representations", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_helio_iraf", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "generate_IRAF_input", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_get_barycorr_bvcs", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_get_barycorr_bvcs_withvels", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "TransformGraph.find_shortest_path", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "TransformGraph.get_transform", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "TransformGraph.to_dot_graph", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "TransformGraph.impose_finite_difference_dt", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "CoordinateTransform.__init__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "CompositeTransform._combine_statics", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Cosmology.__init_subclass__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LocaleTime.__pad", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LocaleTime.__calc_am_pm", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Section.__setitem__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Section.restore_default", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj._parse", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj._handle_error", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj._multiline", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj.validate_entry", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ConfigObj.validate", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "flatten_errors", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Validator._parse_check", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Validator._list_handle", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_is_num_param", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnBrowserDetect", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnDraw", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnAddOptionsHtml", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnFeatureHtmlFilter", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnFeatureHtmlLength", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnFeatureHtmlTable", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_fnCalculateColumnWidths", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "attach", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.tokenize", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.add_path", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.group_lines", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.collect_args", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.macro_prescan", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.expand_macros", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Preprocessor.parsegen", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Lexer.clone", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Lexer.writetab", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Lexer.readtab", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Lexer.push_state", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_funcs_to_names", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_names_to_funcs", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LexerReflect.get_rules", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "lex", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRParser.restart", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRParser.parsedebug", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRParser.parseopt", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRParser.parseopt_notrack", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Production.__init__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.add_production", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.set_start", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.infinite_cycles", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.undefined_symbols", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.unused_terminals", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.unused_rules", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.unused_precedence", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar._first", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.compute_first", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.compute_follow", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Grammar.build_lritems", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRTable.read_table", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRTable.read_pickle", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "traverse", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.lr0_closure", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.lr0_goto", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.lr0_items", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.find_nonterminal_transitions", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.dr_relation", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.reads_relation", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.compute_lookback_includes", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.add_lookaheads", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.lr_parse_table", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.write_table", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LRGeneratedTable.pickle_table", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "parse_grammar", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ParserReflect.signature", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ParserReflect.validate_precedence", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ParserReflect.get_pfunctions", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ParserReflect.validate_pfunctions", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "yacc", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "filter_section", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "CommentedHeaderHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "RdbHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "CdsHeader.get_cols", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_get_connectors_table", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_replace_tab_with_space", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseHeader.write_comments", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseData.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseOutputter._validate_and_copy", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_deduplicate_names", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "BaseReader.read", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ContinuationLinesInputter.process_lines", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "WhitespaceSplitter.process_line", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "DaophotHeader.parse_col_defs", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "DaophotHeader.get_cols", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "DaophotInputter.process_lines", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "EcsvHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "EcsvOutputter._convert_vals", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "FastCommentedHeader._read_header", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "FixedWidthHeader.get_fixedwidth_params", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "FixedWidthData.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "ListWriter.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "HTMLOutputter.__call__", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "HTMLHeader._set_cols_from_names", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "HTML.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "IpacHeader.update_meta", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "IpacHeader.get_cols", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "IpacHeader.str_vals", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "IpacHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "IpacData.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "Ipac.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "add_dictval_to_list", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LatexHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "LatexData.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "AASTexHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "AASTexData.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "MrtHeader.write_byte_by_byte", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "MrtHeader.write", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_get_tables_from_qdp_file", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_understand_err_col", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "_write_table_qdp", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "SExtractorHeader.get_cols", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_embedded_newlines", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_write_byte_by_byte_units", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_write_byte_by_byte_bytes_col_format", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}, {"src": "test_write_byte_by_byte_wrapping", "tgt": "Header.append", "kind": "CALLS", "tgt_gt": ""}], "stats": {"files": 1127, "classes": 2487, "functions": 11341}};
+
+// Subtitle
+document.getElementById('sub').textContent =
+  `Instance: ${D.instance_id}  |  Query: "${D.query}"  |  Condition: ${D.condition}  |  ${D.total_fn_nodes} functions`;
+
+// Verdict
+const v = document.getElementById('verdict-text');
+const vd = document.getElementById('verdict-detail');
+if (D.match_result.strict_rank) {
+  v.className = 'verdict hit';
+  v.textContent = `FN-HIT @ rank ${D.match_result.strict_rank}`;
+  vd.textContent = `GT function found in top-${D.top_k}. ` +
+    `File rank: ${D.match_result.file_rank || 'n/a'}. Tokens: ${D.match_result.top_k_tokens}`;
+} else {
+  v.className = 'verdict miss';
+  v.textContent = 'FN-MISS';
+  const closest = D.gt_positions.length ? D.gt_positions[0] : null;
+  vd.textContent = closest
+    ? `Closest GT "${closest.short}" at rank ${closest.rank} (needed ≤${D.top_k}). BM25=${closest.bm25}`
+    : 'No GT function found in ranking at all.';
+}
+
+// Intent
+const ib = document.getElementById('intent-badge');
+ib.textContent = D.intent.toUpperCase();
+ib.className = 'badge b-' + D.intent;
+
+// Weights
+const wDiv = document.getElementById('weights-bars');
+const wColors = {bm25:'#58a6ff',fan_in:'#f0883e',fan_out:'#d2a8ff',complexity:'#f85149',test_cover:'#3fb950'};
+for (const [k, val] of Object.entries(D.weights)) {
+  const pct = (val * 100).toFixed(0);
+  wDiv.innerHTML += `<div class="wb"><div class="l">${k}</div><div class="bg"><div class="fill" style="width:${pct}%;background:${wColors[k]}"></div><div class="val">${pct}%</div></div></div>`;
+}
+
+// GT functions
+const gtDiv = document.getElementById('gt-fns');
+D.gt_fns.forEach(fn => {
+  gtDiv.innerHTML += `<div style="margin:4px 0"><span class="gt-fn">${fn}</span></div>`;
+});
+D.gt_files.forEach(f => {
+  gtDiv.innerHTML += `<div><span class="gt-file">📄 ${f}</span></div>`;
+});
+
+// GT positions in ranking
+const gpDiv = document.getElementById('gt-positions');
+if (!D.gt_positions.length) {
+  gpDiv.innerHTML = '<div style="color:#f85149;font-weight:600">No GT functions found in ranking!</div>';
+} else {
+  D.gt_positions.forEach(p => {
+    const cls = p.rank <= D.top_k ? 'found' : 'notfound';
+    const tag = p.rank <= D.top_k ? '✓ IN TOP-K' : `✗ outside (need ≤${D.top_k})`;
+    gpDiv.innerHTML += `<div style="margin:4px 0"><span class="gt-fn">${p.short}</span><span class="gt-rank ${cls}"> rank ${p.rank} ${tag}</span><br><span class="gt-file">${p.file} | bm25=${p.bm25}</span></div>`;
+  });
+}
+
+// Signal mini-bar helper
+function sbar(v, color, maxW) {
+  const w = Math.max(1, v * maxW);
+  return `<span class="mb" style="width:${w}px;background:${color}" title="${v}"></span>`;
+}
+
+// Ranked table
+document.getElementById('rank-head').innerHTML =
+  '<tr><th>#</th><th>Function</th><th>File</th><th>Tok</th><th>BM25</th><th>Fan-In</th><th>Fan-Out</th><th>Cmplx</th><th>Test</th><th>Nbr</th><th>PR</th><th>Tag</th></tr>';
+const tbody = document.getElementById('rank-body');
+D.ranked.forEach(r => {
+  let cls = '';
+  if (r.gt === 'strict') cls = 'gt-strict';
+  else if (r.gt === 'lenient') cls = 'gt-lenient';
+  if (r.in_topk) cls += ' topk-row';
+  const s = r.signals;
+  let tags = '';
+  if (r.in_topk) tags += '<span class="badge b-topk">TOP-K</span> ';
+  if (r.gt === 'strict') tags += '<span class="badge b-gt-strict">GT</span>';
+  else if (r.gt === 'lenient') tags += '<span class="badge b-gt-lenient">GT~</span>';
+
+  tbody.innerHTML += `<tr class="${cls}">
+    <td>${r.rank}</td>
+    <td title="${r.id}">${r.short}</td>
+    <td style="color:#8b949e;font-size:0.78em">${r.file}:${r.line}</td>
+    <td>${r.tokens}</td>
+    <td class="sc">${sbar(s.bm25,'#58a6ff',55)} ${s.bm25.toFixed(3)}</td>
+    <td class="sc">${sbar(s.fan_in,'#f0883e',55)} ${s.fan_in.toFixed(3)}</td>
+    <td class="sc">${sbar(s.fan_out,'#d2a8ff',55)} ${s.fan_out.toFixed(3)}</td>
+    <td class="sc">${sbar(s.complexity,'#f85149',55)} ${s.complexity.toFixed(3)}</td>
+    <td class="sc">${sbar(s.test_cover,'#3fb950',55)} ${s.test_cover.toFixed(3)}</td>
+    <td class="sc">${sbar(s.nbr_bonus,'#db61a2',55)} ${s.nbr_bonus.toFixed(3)}</td>
+    <td class="sc">${sbar(s.pagerank,'#f778ba',55)} ${s.pagerank.toFixed(3)}</td>
+    <td>${tags}</td>
+  </tr>`;
+});
+
+// Compare: GT vs Top-1
+const cp = document.getElementById('compare-panels');
+function makeCompareCard(title, data, highlight) {
+  if (!data) return '<div class="card" style="color:#8b949e">N/A</div>';
+  const s = data.signals;
+  let html = `<div class="card"><h3>${title}: ${data.short}</h3><div style="font-size:0.78em;color:#8b949e;margin-bottom:8px">${data.file}:${data.line}</div>`;
+  const sigs = [
+    ['BM25', s.bm25, '#58a6ff'], ['Fan-In', s.fan_in, '#f0883e'], ['Fan-Out', s.fan_out, '#d2a8ff'],
+    ['Complexity', s.complexity, '#f85149'], ['Test-Cover', s.test_cover, '#3fb950'],
+    ['Nbr-Bonus', s.nbr_bonus, '#db61a2'], ['PageRank', s.pagerank, '#f778ba'],
+  ];
+  sigs.forEach(([name, val, color]) => {
+    const pct = (val * 100).toFixed(1);
+    html += `<div class="wb"><div class="l">${name}</div><div class="bg"><div class="fill" style="width:${pct}%;background:${color}"></div><div class="val">${val.toFixed(4)}</div></div></div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+const top1 = D.ranked.length ? D.ranked[0] : null;
+const gtEntry = D.ranked.find(r => r.gt === 'strict') || D.ranked.find(r => r.gt === 'lenient');
+cp.innerHTML = makeCompareCard('Top-1 Ranked', top1, false) + makeCompareCard('Ground Truth', gtEntry, true);
+</script>
+</body>
+</html>
