@@ -108,6 +108,7 @@ class GraphBuilder:
                     line_end  = crg_node.line_end or 0,
                     is_test   = crg_node.is_test,
                     token_cost= _token_cost(source, layer),
+                    language  = crg_node.language or "",
                 )
                 graph.add_node(node)
 

@@ -1,0 +1,1 @@
+{"bug_id": "thefuck-7", "condition": "tacm", "seed": 42, "success": false, "steps": 1, "prompt_tokens": 0, "completion_tokens": 0, "duration_s": 0.5489696250006091, "patch_applied": false, "test_output": "", "error": "<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1000)>"}

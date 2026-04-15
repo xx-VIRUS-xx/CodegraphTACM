@@ -1,0 +1,870 @@
+{
+  "thefuck": {
+    "thefuck-1": {
+      "issue_number": 1,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/1",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/pip_unknown_command.py"
+      ],
+      "test_file": "tests/rules/test_pip_unknown_command.py",
+      "query": "#1047: Fix pip_unknown_command by using a less restrictive regex",
+      "pr_number": null,
+      "pr_url": null,
+      "solved": null
+    },
+    "thefuck-3": {
+      "issue_number": 2,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/2",
+      "gt_functions": [
+        "info"
+      ],
+      "gt_files": [
+        "thefuck/shells/fish.py"
+      ],
+      "test_file": "tests/shells/test_fish.py",
+      "query": "#869: Use `fish --version` instead of an interactive shell for info()",
+      "pr_number": null,
+      "pr_url": null,
+      "solved": null
+    },
+    "thefuck-4": {
+      "issue_number": 3,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/3",
+      "gt_functions": [
+        "_get_aliases"
+      ],
+      "gt_files": [
+        "thefuck/shells/fish.py"
+      ],
+      "test_file": "tests/shells/test_fish.py",
+      "query": "Support aliases with equal sign (#808)",
+      "pr_number": null,
+      "pr_url": null,
+      "solved": null
+    },
+    "thefuck-5": {
+      "issue_number": 4,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/4",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_push.py"
+      ],
+      "test_file": "tests/rules/test_git_push.py",
+      "query": "git_push: Handle branch names containing 'set-upstream' (#759)",
+      "pr_number": 30,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/30",
+      "solved": true,
+      "test_output": ".................                                                        [100%]\n17 passed in 0.09s\n"
+    },
+    "thefuck-6": {
+      "issue_number": 5,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/5",
+      "gt_functions": [
+        "match",
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_branch_exists.py"
+      ],
+      "test_file": "tests/rules/test_git_branch_exists.py",
+      "query": "#762: handle single quotes in git_branch_exists",
+      "pr_number": 29,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/29",
+      "solved": true,
+      "test_output": ".........                                                                [100%]\n9 passed in 0.03s\n"
+    },
+    "thefuck-7": {
+      "issue_number": 6,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/6",
+      "gt_functions": [
+        "match",
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/php_s.py"
+      ],
+      "test_file": "tests/rules/test_php_s.py",
+      "query": "#702: fix minor issues with `php_s` rule",
+      "pr_number": 32,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/32",
+      "solved": true,
+      "test_output": "......                                                                   [100%]\n6 passed in 0.03s\n"
+    },
+    "thefuck-8": {
+      "issue_number": 7,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/7",
+      "gt_functions": [
+        "_parse_operations"
+      ],
+      "gt_files": [
+        "thefuck/rules/dnf_no_such_command.py"
+      ],
+      "test_file": "tests/rules/test_dnf_no_such_command.py",
+      "query": "Tests! Also fixed some bytes-string issues",
+      "pr_number": 31,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/31",
+      "solved": true,
+      "test_output": ".......                                                                  [100%]\n7 passed in 0.03s\n"
+    },
+    "thefuck-11": {
+      "issue_number": 8,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/8",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_push.py"
+      ],
+      "test_file": "tests/rules/test_git_push.py",
+      "query": "Merge pull request #559 from josephfrazier/git-push-explicit-upstream",
+      "pr_number": 33,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/33",
+      "solved": true,
+      "test_output": ".................                                                        [100%]\n17 passed in 0.03s\n"
+    },
+    "thefuck-12": {
+      "issue_number": 9,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/9",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/no_command.py"
+      ],
+      "test_file": "tests/rules/test_no_command.py",
+      "query": "#N/A: Ensure that command doesn't exists in `no_command` rule",
+      "pr_number": 35,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/35",
+      "solved": true,
+      "test_output": "............                                                             [100%]\n12 passed in 0.04s\n"
+    },
+    "thefuck-13": {
+      "issue_number": 10,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/10",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_branch_exists.py"
+      ],
+      "test_file": "tests/rules/test_git_branch_exists.py",
+      "query": "#N/A: Use git_branch_exists rule with `checkout` too",
+      "pr_number": 34,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/34",
+      "solved": true,
+      "test_output": ".........                                                                [100%]\n9 passed in 0.03s\n"
+    },
+    "thefuck-14": {
+      "issue_number": 11,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/11",
+      "gt_functions": [
+        "Fish._get_overridden_aliases"
+      ],
+      "gt_files": [
+        "thefuck/shells/fish.py"
+      ],
+      "test_file": "tests/shells/test_fish.py",
+      "query": "#253: Update default overridden aliases with user's",
+      "pr_number": 36,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/36",
+      "solved": true,
+      "test_output": ".................................                                        [100%]\n=============================== warnings summary ===============================\n../../../../../Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/fixtures.py:1303\n  /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/fixtures.py:1303: PytestRemovedIn9Warning: Marks applied to fixtures have no effect\n  See docs: https://docs.pytest.org/en/stable/deprecations.html#applying-a-mark-to-a-fixture-function\n    return fixture_marker(fixture_function)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n33 passed, 1 warning in 0.06s\n"
+    },
+    "thefuck-15": {
+      "issue_number": 12,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/12",
+      "gt_functions": [
+        "match",
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_add.py"
+      ],
+      "test_file": "tests/rules/test_git_add.py",
+      "query": "#N/A: Fix `git_add` rule",
+      "pr_number": 37,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/37",
+      "solved": true,
+      "test_output": ".......                                                                  [100%]\n7 passed in 0.03s\n"
+    },
+    "thefuck-16": {
+      "issue_number": 13,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/13",
+      "gt_functions": [
+        "Bash.app_alias",
+        "app_alias",
+        "Zsh.app_alias"
+      ],
+      "gt_files": [
+        "thefuck/shells/bash.py",
+        "thefuck/shells/fish.py",
+        "thefuck/shells/zsh.py",
+        "thefuck/types.py"
+      ],
+      "test_file": "tests/shells/test_bash.py;tests/shells/test_zsh.py",
+      "query": "#301: Set variables within the alias",
+      "pr_number": 38,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/38",
+      "solved": false,
+      "test_output": "Copilot gave up: filed Initial plan only, no code changes"
+    },
+    "thefuck-17": {
+      "issue_number": 14,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/14",
+      "gt_functions": [
+        "app_alias",
+        "get_aliases"
+      ],
+      "gt_files": [
+        "thefuck/shells/bash.py",
+        "thefuck/shells/zsh.py"
+      ],
+      "test_file": "tests/shells/test_bash.py",
+      "query": "#402: Don't invoke bash for getting aliases",
+      "pr_number": 44,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/44",
+      "solved": true,
+      "test_output": "................                                                         [100%]\n=============================== warnings summary ===============================\n../../../../../Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/fixtures.py:1303\n  /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/fixtures.py:1303: PytestRemovedIn9Warning: Marks applied to fixtures have no effect\n  See docs: https://docs.pytest.org/en/stable/deprecations.html#applying-a-mark-to-a-fixture-function\n    return fixture_marker(fixture_function)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n16 passed, 1 warning in 0.03s\n"
+    },
+    "thefuck-18": {
+      "issue_number": 15,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/15",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/sudo.py"
+      ],
+      "test_file": "tests/rules/test_sudo.py",
+      "query": "#415: Prevent double `sudo`",
+      "pr_number": 39,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/39",
+      "solved": true,
+      "test_output": ".................                                                        [100%]\n17 passed in 0.05s\n"
+    },
+    "thefuck-19": {
+      "issue_number": 16,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/16",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_push_force.py"
+      ],
+      "test_file": "tests/rules/test_git_push_force.py",
+      "query": "Use --force-with-lease instead of --force for git push",
+      "pr_number": 40,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/40",
+      "solved": true,
+      "test_output": "............                                                             [100%]\n12 passed in 0.03s\n"
+    },
+    "thefuck-20": {
+      "issue_number": 17,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/17",
+      "gt_functions": [
+        "_is_bad_zip",
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/dirty_unzip.py"
+      ],
+      "test_file": "tests/rules/test_dirty_unzip.py",
+      "query": "Fix the unzip rules and filenames with spaces",
+      "pr_number": 41,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/41",
+      "solved": true,
+      "test_output": "............                                                             [100%]\n12 passed in 0.05s\n"
+    },
+    "thefuck-21": {
+      "issue_number": 18,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/18",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_fix_stash.py"
+      ],
+      "test_file": "tests/rules/test_git_fix_stash.py",
+      "query": "#369 Fix `git_fix_stash` fails when script is just `git`",
+      "pr_number": 43,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/43",
+      "solved": true,
+      "test_output": ".......                                                                  [100%]\n7 passed in 0.03s\n"
+    },
+    "thefuck-22": {
+      "issue_number": 19,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/19",
+      "gt_functions": [
+        "_realise"
+      ],
+      "gt_files": [
+        "thefuck/types.py"
+      ],
+      "test_file": "tests/test_types.py",
+      "query": "Fix without result",
+      "pr_number": 42,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/42",
+      "solved": true,
+      "test_output": "............................                                             [100%]\n28 passed in 0.04s\n"
+    },
+    "thefuck-24": {
+      "issue_number": 20,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/20",
+      "gt_functions": [
+        "CorrectedCommand.__init__",
+        "CorrectedCommand.__eq__",
+        "CorrectedCommand.__hash__",
+        "CorrectedCommand.__repr__",
+        "RulesNamesList._remove_duplicates"
+      ],
+      "gt_files": [
+        "thefuck/types.py"
+      ],
+      "test_file": "tests/test_types.py",
+      "query": "Make `CorrectedCommand` ignore priority when checking equality",
+      "pr_number": 45,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/45",
+      "solved": true,
+      "test_output": "............................                                             [100%]\n28 passed in 0.03s\n"
+    },
+    "thefuck-25": {
+      "issue_number": 21,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/21",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/mkdir_p.py"
+      ],
+      "test_file": "tests/rules/test_mkdir_p.py",
+      "query": "Support for hdfs dfs -mkdir -p /directory/subdirectory",
+      "pr_number": 48,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/48",
+      "solved": true,
+      "test_output": "...........                                                              [100%]\n11 passed in 0.03s\n"
+    },
+    "thefuck-26": {
+      "issue_number": 22,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/22",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/vagrant_up.py"
+      ],
+      "test_file": "tests/rules/test_vagrant_up.py",
+      "query": "Support for either starting only the machine requested, or starting all machines",
+      "pr_number": 46,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/46",
+      "solved": true,
+      "test_output": "............                                                             [100%]\n12 passed in 0.03s\n"
+    },
+    "thefuck-27": {
+      "issue_number": 23,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/23",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/open.py"
+      ],
+      "test_file": "tests/rules/test_open.py",
+      "query": "Fix the open rule",
+      "pr_number": 49,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/49",
+      "solved": true,
+      "test_output": ".......................                                                  [100%]\n23 passed in 0.03s\n"
+    },
+    "thefuck-28": {
+      "issue_number": 24,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/24",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/fix_file.py"
+      ],
+      "test_file": "tests/rules/test_fix_file.py",
+      "query": "Handle columns it the fix_file rule",
+      "pr_number": 47,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/47",
+      "solved": true,
+      "test_output": "........................................................................ [ 62%]\n...........................................                              [100%]\n115 passed in 0.11s\n"
+    },
+    "thefuck-29": {
+      "issue_number": 25,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/25",
+      "gt_functions": [
+        "update"
+      ],
+      "gt_files": [
+        "thefuck/types.py"
+      ],
+      "test_file": "tests/test_types.py;tests/test_utils.py",
+      "query": "Fix the @wrap_settings annotation",
+      "pr_number": 55,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/55",
+      "solved": true,
+      "test_output": "66 passed (corrected: gh checkout failure masked pass)"
+    },
+    "thefuck-30": {
+      "issue_number": 26,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/26",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/fix_file.py"
+      ],
+      "test_file": "tests/rules/test_fix_file.py",
+      "query": "Test if the file exists in the `fix_file` rule",
+      "pr_number": 51,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/51",
+      "solved": true,
+      "test_output": "........................................................................ [ 62%]\n...........................................                              [100%]\n115 passed in 0.12s\n"
+    },
+    "thefuck-31": {
+      "issue_number": 27,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/27",
+      "gt_functions": [
+        "get_new_command"
+      ],
+      "gt_files": [
+        "thefuck/rules/git_diff_staged.py"
+      ],
+      "test_file": "tests/rules/test_git_diff_staged.py",
+      "query": "Fix the `git_diff_staged` rule",
+      "pr_number": 57,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/57",
+      "solved": true,
+      "test_output": "........                                                                 [100%]\n8 passed in 0.03s\n"
+    },
+    "thefuck-32": {
+      "issue_number": 28,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/issues/28",
+      "gt_functions": [
+        "match"
+      ],
+      "gt_files": [
+        "thefuck/rules/ls_lah.py"
+      ],
+      "test_file": "tests/rules/test_ls_lah.py",
+      "query": "fix(rules.ls_lah): make sure script starts with ls",
+      "pr_number": 60,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-thefuck/pull/60",
+      "solved": true,
+      "test_output": "..                                                                       [100%]\n2 passed in 0.03s\n"
+    }
+  },
+  "scrapy": {
+    "scrapy-2": {
+      "issue_number": 1,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/1",
+      "gt_functions": [
+        "__setitem__"
+      ],
+      "gt_files": [
+        "scrapy/utils/datatypes.py"
+      ],
+      "test_file": "tests/test_utils_datatypes.py",
+      "query": "Fix scrapy.utils.datatypes.LocalCache limit issue",
+      "pr_number": 25,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/25",
+      "solved": false,
+      "test_output": "Copilot gave up: filed Initial plan only, no code changes"
+    },
+    "scrapy-4": {
+      "issue_number": 2,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/2",
+      "gt_functions": [
+        "eb_wrapper"
+      ],
+      "gt_files": [
+        "scrapy/contracts/__init__.py"
+      ],
+      "test_file": "tests/test_contracts.py",
+      "query": "Fix contract errback",
+      "pr_number": 24,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/24",
+      "solved": true,
+      "test_output": " /Users/xxvirusxx/PY/CodegraphTACM/scrapy/scrapy/contracts/__init__.py:187: RuntimeWarning: coroutine 'DemoSpider.returns_request_async' was never awaited\n    results.addError(case, sys.exc_info())\n  Enable tracemalloc to get traceback where the object was allocated.\n  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.\n\ntests/test_contracts.py::TestContractsManager::test_same_url\n  /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/python.py:151: PytestUnhandledCoroutineWarning: async def functions are not natively supported and have been skipped.\n  You need to install a suitable plugin for your async framework, for example:\n    - anyio\n    - pytest-asyncio\n    - pytest-tornasync\n    - pytest-trio\n    - pytest-twisted\n    warnings.warn(PytestUnhandledCoroutineWarning(msg.format(nodeid)))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n13 passed, 1 skipped, 3 warnings in 0.37s\n"
+    },
+    "scrapy-7": {
+      "issue_number": 3,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/3",
+      "gt_functions": [
+        "_get_form_url"
+      ],
+      "gt_files": [
+        "scrapy/http/request/form.py"
+      ],
+      "test_file": "tests/test_http_request.py",
+      "query": "FormRequest: handle whitespaces in action attribute properly",
+      "pr_number": 26,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/26",
+      "solved": true,
+      "test_output": "......................................................                   [100%]\n54 passed in 0.17s\n"
+    },
+    "scrapy-8": {
+      "issue_number": 4,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/4",
+      "gt_functions": [
+        "ItemMeta.__new__"
+      ],
+      "gt_files": [
+        "scrapy/item.py"
+      ],
+      "test_file": "tests/test_item.py",
+      "query": "BUG: Fix __classcell__ propagation.",
+      "pr_number": 27,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/27",
+      "solved": true,
+      "test_output": "...................                                                      [100%]\n19 passed in 0.14s\n"
+    },
+    "scrapy-12": {
+      "issue_number": 5,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/5",
+      "gt_functions": [
+        "__init__"
+      ],
+      "gt_files": [
+        "scrapy/selector/unified.py"
+      ],
+      "test_file": "tests/test_selector.py",
+      "query": "Merge pull request #2153 from Digenis/Selector_bad_args",
+      "pr_number": 28,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/28",
+      "solved": true,
+      "test_output": "..........s                                                              [100%]\n10 passed, 1 skipped in 0.13s\n"
+    },
+    "scrapy-14": {
+      "issue_number": 6,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/6",
+      "gt_functions": [
+        "is_gzipped"
+      ],
+      "gt_files": [
+        "scrapy/utils/gz.py"
+      ],
+      "test_file": "tests/test_utils_gz.py",
+      "query": "Merge pull request #2050 from Tethik/is_gzipped_fix",
+      "pr_number": 30,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/30",
+      "solved": true,
+      "test_output": "......                                                                   [100%]\n6 passed in 0.12s\n"
+    },
+    "scrapy-15": {
+      "issue_number": 7,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/7",
+      "gt_functions": [
+        "_safe_ParseResult"
+      ],
+      "gt_files": [
+        "scrapy/utils/url.py"
+      ],
+      "test_file": "tests/test_utils_url.py",
+      "query": "Do not fail on canonicalizing URLs with wrong netlocs",
+      "pr_number": 31,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/31",
+      "solved": true,
+      "test_output": "........................................................s............... [ 58%]\n....................................................                     [100%]\n123 passed, 1 skipped in 0.18s\n"
+    },
+    "scrapy-16": {
+      "issue_number": 8,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/8",
+      "gt_functions": [
+        "_safe_ParseResult",
+        "canonicalize_url",
+        "_unquotepath",
+        "parse_url",
+        "parse_qsl_to_bytes"
+      ],
+      "gt_files": [
+        "scrapy/utils/url.py"
+      ],
+      "test_file": "tests/test_utils_url.py",
+      "query": "Fix canonicalize_url() on Python 3 and re-enable tests",
+      "pr_number": 29,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/29",
+      "solved": true,
+      "test_output": "........................................................s............... [ 58%]\n....................................................                     [100%]\n123 passed, 1 skipped in 0.17s\n"
+    },
+    "scrapy-17": {
+      "issue_number": 9,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/9",
+      "gt_functions": [
+        "response_status_message"
+      ],
+      "gt_files": [
+        "scrapy/utils/response.py"
+      ],
+      "test_file": "tests/test_utils_response.py",
+      "query": "response_status_message should not fail on non-standard HTTP codes",
+      "pr_number": 33,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/33",
+      "solved": true,
+      "test_output": "..............                                                           [100%]\n14 passed in 0.14s\n"
+    },
+    "scrapy-18": {
+      "issue_number": 10,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/10",
+      "gt_functions": [
+        "from_content_disposition"
+      ],
+      "gt_files": [
+        "scrapy/responsetypes.py"
+      ],
+      "test_file": "tests/test_responsetypes.py",
+      "query": "More liberal Content-Disposition header parsing",
+      "pr_number": 32,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/32",
+      "solved": true,
+      "test_output": ".......                                                                  [100%]\n7 passed in 0.13s\n"
+    },
+    "scrapy-19": {
+      "issue_number": 11,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/11",
+      "gt_functions": [
+        "get_origin_req_host",
+        "full_url",
+        "host",
+        "type",
+        "origin_req_host"
+      ],
+      "gt_files": [
+        "scrapy/http/cookies.py"
+      ],
+      "test_file": "tests/test_http_cookies.py",
+      "query": "PY3: Implement some attributes of WrappedRequest required in Python 3",
+      "pr_number": 34,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/34",
+      "solved": true,
+      "test_output": "............                                                             [100%]\n12 passed in 0.13s\n"
+    },
+    "scrapy-20": {
+      "issue_number": 12,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/12",
+      "gt_functions": [
+        "_parse_sitemap"
+      ],
+      "gt_files": [
+        "scrapy/spiders/sitemap.py"
+      ],
+      "test_file": "tests/test_spider.py",
+      "query": "Fix SitemapSpider to extract sitemap urls from robots.txt properly",
+      "pr_number": 35,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/35",
+      "solved": false,
+      "test_output": "Copilot gave up: filed Initial plan only, no code changes"
+    },
+    "scrapy-21": {
+      "issue_number": 13,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/13",
+      "gt_functions": [
+        "_robots_error"
+      ],
+      "gt_files": [
+        "scrapy/downloadermiddlewares/robotstxt.py"
+      ],
+      "test_file": "tests/test_downloadermiddleware_robotstxt.py",
+      "query": "Merge pull request #1735 from ArturGaspar/master",
+      "pr_number": null,
+      "pr_url": null,
+      "solved": null
+    },
+    "scrapy-23": {
+      "issue_number": 14,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/14",
+      "gt_functions": [
+        "test_priority_adjust",
+        "test_404",
+        "test_dont_retry",
+        "test_503"
+      ],
+      "gt_files": [
+        "scrapy/downloadermiddlewares/httpproxy.py",
+        "tests/test_downloadermiddleware_retry.py"
+      ],
+      "test_file": "tests/test_downloadermiddleware_httpproxy.py",
+      "query": "py3 fix HttpProxy and Retry Middlewares",
+      "pr_number": 36,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/36",
+      "solved": true,
+      "test_output": "...........................                                              [100%]\n27 passed in 0.27s\n"
+    },
+    "scrapy-24": {
+      "issue_number": 15,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/15",
+      "gt_functions": [
+        "requestTunnel"
+      ],
+      "gt_files": [
+        "scrapy/core/downloader/handlers/http11.py"
+      ],
+      "test_file": "tests/test_downloader_handlers.py",
+      "query": "https proxy tunneling - add a test (not perfect, but covers all impl) and fix for py3",
+      "pr_number": 39,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/39",
+      "solved": true,
+      "test_output": "rnings summary ===============================\ntests/utils/decorators.py:66\n  /Users/xxvirusxx/PY/CodegraphTACM/scrapy/tests/utils/decorators.py:66: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    return pytest.mark.asyncio(coro_f)\n\ntests/test_downloader_handlers.py: 16 warnings\n  /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/python.py:151: PytestUnhandledCoroutineWarning: async def functions are not natively supported and have been skipped.\n  You need to install a suitable plugin for your async framework, for example:\n    - anyio\n    - pytest-asyncio\n    - pytest-tornasync\n    - pytest-trio\n    - pytest-twisted\n    warnings.warn(PytestUnhandledCoroutineWarning(msg.format(nodeid)))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n5 passed, 17 skipped, 17 warnings in 0.32s\n"
+    },
+    "scrapy-25": {
+      "issue_number": 16,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/16",
+      "gt_functions": [
+        "_get_form_url",
+        "_get_form"
+      ],
+      "gt_files": [
+        "scrapy/http/request/form.py"
+      ],
+      "test_file": "tests/test_http_request.py",
+      "query": "Merge pull request #1563 from starrify/master",
+      "pr_number": 38,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/38",
+      "solved": true,
+      "test_output": "......................................................                   [100%]\n54 passed in 0.14s\n"
+    },
+    "scrapy-26": {
+      "issue_number": 17,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/17",
+      "gt_functions": [
+        "getbool"
+      ],
+      "gt_files": [
+        "scrapy/settings/__init__.py"
+      ],
+      "test_file": "tests/test_settings/__init__.py",
+      "query": "Fix backwards-compatibility for users who explicitly set _BASE settings",
+      "pr_number": 42,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/42",
+      "solved": true,
+      "test_output": "..................xx.................................................... [ 67%]\n..................................                                       [100%]\n104 passed, 2 xfailed in 0.40s\n"
+    },
+    "scrapy-27": {
+      "issue_number": 18,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/18",
+      "gt_functions": [
+        "process_response"
+      ],
+      "gt_files": [
+        "scrapy/downloadermiddlewares/redirect.py"
+      ],
+      "test_file": "tests/test_downloadermiddleware_redirect.py",
+      "query": "Fix RedirectMiddleware not honouring meta handle_httpstatus keys",
+      "pr_number": 41,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/41",
+      "solved": true,
+      "test_output": "........................................................................ [ 93%]\n.....                                                                    [100%]\n77 passed in 0.56s\n"
+    },
+    "scrapy-30": {
+      "issue_number": 19,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/19",
+      "gt_functions": [
+        "__init__",
+        "_execute"
+      ],
+      "gt_files": [
+        "scrapy/cmdline.py",
+        "scrapy/utils/testproc.py",
+        "tests/test_cmdline/__init__.py"
+      ],
+      "test_file": "tests/test_command_version.py",
+      "query": "PY3 fix test cmdline",
+      "pr_number": 40,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/40",
+      "solved": true,
+      "test_output": "..                                                                       [100%]\n2 passed in 0.90s\n"
+    },
+    "scrapy-31": {
+      "issue_number": 20,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/20",
+      "gt_functions": [
+        "get_header",
+        "header_items",
+        "get_all"
+      ],
+      "gt_files": [
+        "scrapy/http/cookies.py"
+      ],
+      "test_file": "tests/test_downloadermiddleware_cookies.py",
+      "query": "Do not break cookie parsing on non-utf8 headers",
+      "pr_number": 44,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/44",
+      "solved": false,
+      "test_output": "Copilot gave up: filed Initial plan only, no code changes"
+    },
+    "scrapy-32": {
+      "issue_number": 21,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/21",
+      "gt_functions": [
+        "__init__"
+      ],
+      "gt_files": [
+        "scrapy/crawler.py"
+      ],
+      "test_file": "tests/test_crawler.py",
+      "query": "fixed CrawlerProcess when settings are passed as dicts",
+      "pr_number": 43,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/43",
+      "solved": true,
+      "test_output": ".org/en/stable/how-to/mark.html\n    @pytest.mark.asyncio\n\ntests/utils/decorators.py:66\n  /Users/xxvirusxx/PY/CodegraphTACM/scrapy/tests/utils/decorators.py:66: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n    return pytest.mark.asyncio(coro_f)\n\ntests/test_crawler.py: 23 warnings\n  /Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/_pytest/python.py:151: PytestUnhandledCoroutineWarning: async def functions are not natively supported and have been skipped.\n  You need to install a suitable plugin for your async framework, for example:\n    - anyio\n    - pytest-asyncio\n    - pytest-tornasync\n    - pytest-trio\n    - pytest-twisted\n    warnings.warn(PytestUnhandledCoroutineWarning(msg.format(nodeid)))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n25 passed, 24 skipped, 25 warnings in 0.28s\n"
+    },
+    "scrapy-33": {
+      "issue_number": 22,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/22",
+      "gt_functions": [
+        "_handle_downloader_output",
+        "errback",
+        "failure_to_exc_info",
+        "msg",
+        "__init__",
+        "filter",
+        "err",
+        "configure_logging",
+        "log_scrapy_info",
+        "StreamLogger.__init__",
+        "StreamLogger.write",
+        "LogCounterHandler.__init__",
+        "LogCounterHandler.emit",
+        "logformatter_adapter"
+      ],
+      "gt_files": [
+        "scrapy/core/engine.py",
+        "scrapy/core/scraper.py",
+        "scrapy/downloadermiddlewares/robotstxt.py",
+        "scrapy/extensions/feedexport.py",
+        "scrapy/log.py",
+        "scrapy/pipelines/files.py",
+        "scrapy/pipelines/media.py",
+        "scrapy/utils/signal.py"
+      ],
+      "test_file": "tests/test_pipeline_media.py;tests/test_utils_log.py",
+      "query": "Replace FailureFormatter with direct exc_info conversions in log calls",
+      "pr_number": 45,
+      "pr_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/pull/45",
+      "solved": false,
+      "test_output": "Copilot gave up: filed Initial plan only, no code changes"
+    },
+    "scrapy-39": {
+      "issue_number": 23,
+      "issue_url": "https://github.com/xx-VIRUS-xx/tacm-bench-scrapy/issues/23",
+      "gt_functions": [
+        "start_requests"
+      ],
+      "gt_files": [
+        "scrapy/spiders/__init__.py"
+      ],
+      "test_file": "tests/test_spider.py",
+      "query": "fix make_requests_from_url deprcation implementation, add tests",
+      "pr_number": null,
+      "pr_url": null,
+      "solved": null
+    }
+  }
+}

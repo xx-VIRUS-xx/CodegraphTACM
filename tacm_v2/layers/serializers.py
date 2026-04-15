@@ -57,37 +57,69 @@ def _short_path(file_path: str) -> str:
 
 
 def _read_imports(file_path: str, max_imports: int = 8) -> list[str]:
-    """Extract top-level import names from source file."""
+    """Extract top-level import names from source file.
+
+    Uses language-agnostic regex patterns covering the most common import
+    styles across languages. Falls back gracefully to empty list for unknown
+    syntax — the graph's IMPORTS_FROM edges are the authoritative source;
+    this is only used for the file-level summary shown to the agent.
+
+    Patterns covered:
+        Python:     import X / from X import Y
+        Java/Kotlin: import com.example.Foo;
+        Go:         import "pkg/path"
+        Rust:       use std::collections::HashMap;
+        JS/TS:      import X from 'pkg' / const X = require('pkg')
+        C/C++:      #include <header> / #include "header"
+        Ruby:       require 'gem'
+        Swift:      import Framework
+    """
     try:
         lines = Path(file_path).read_text(errors="replace").splitlines()
     except OSError:
         return []
-    imports: list[str] = []
-    for line in lines:
-        line = line.strip()
-        if not (line.startswith("import ") or line.startswith("from ")):
-            if imports:
-                break  # stop at first non-import after imports started
-            continue
-        # Extract the module name
-        m = re.match(r'^import\s+([\w.]+)', line)
-        if m:
-            imports.append(m.group(1).split('.')[0])
-            continue
-        m = re.match(r'^from\s+([\w.]+)\s+import', line)
-        if m:
-            name = m.group(1).lstrip('.')
-            if name:
-                imports.append(name.split('.')[0])
-    # Deduplicate, preserve order, cap
+
+    patterns = [
+        # Python: import X.Y / from X.Y import Z
+        (r'^import\s+([\w.]+)',           lambda m: m.group(1).split('.')[0]),
+        (r'^from\s+([\w.]+)\s+import',    lambda m: m.group(1).lstrip('.').split('.')[0]),
+        # Java/Kotlin: import com.example.Foo;
+        (r'^import\s+(?:static\s+)?([\w.]+)',  lambda m: m.group(1).split('.')[0]),
+        # Go: import "pkg/path" or import alias "pkg/path"
+        (r'^import\s+\w*\s*"([\w./\-]+)"', lambda m: m.group(1).split('/')[-1]),
+        # Rust: use std::collections::HashMap;
+        (r'^use\s+([\w:]+)',              lambda m: m.group(1).split('::')[0]),
+        # JS/TS: import X from 'pkg' / import 'pkg'
+        (r"^import\s+.*from\s+['\"]([^'\"./][^'\"]*)['\"]", lambda m: m.group(1).split('/')[0]),
+        (r"^import\s+['\"]([^'\"./][^'\"]*)['\"]",           lambda m: m.group(1).split('/')[0]),
+        # JS require: const X = require('pkg')
+        (r"require\s*\(\s*['\"]([^'\"./][^'\"]*)['\"]",      lambda m: m.group(1).split('/')[0]),
+        # C/C++ includes
+        (r'^#include\s+[<"]([\w./]+)[>"]', lambda m: m.group(1).split('/')[0].split('.')[0]),
+        # Ruby
+        (r"^require\s+['\"]([^'\"./][^'\"]*)['\"]",          lambda m: m.group(1)),
+        # Swift: import Framework
+        (r'^import\s+(\w+)',              lambda m: m.group(1)),
+    ]
+
     seen: set[str] = set()
     result: list[str] = []
-    for imp in imports:
-        if imp not in seen:
-            seen.add(imp)
-            result.append(imp)
-        if len(result) >= max_imports:
-            break
+
+    for line in lines[:80]:   # scan first 80 lines — imports are always at top
+        stripped = line.strip()
+        if not stripped or stripped.startswith('//') or stripped.startswith('*'):
+            continue
+        for pattern, extractor in patterns:
+            m = re.match(pattern, stripped)
+            if m:
+                name = extractor(m)
+                if name and name not in seen:
+                    seen.add(name)
+                    result.append(name)
+                if len(result) >= max_imports:
+                    return result
+                break
+
     return result
 
 
@@ -101,6 +133,22 @@ def _read_source(file_path: str, line_start: int, line_end: int) -> str:
 
 def _count_tokens(text: str) -> int:
     return max(1, len(text) // 4)
+
+
+def _unavailable_sig(name: str, lang: str) -> str:
+    """Language-appropriate 'source unavailable' stub for a function node."""
+    if lang in ("java", "kotlin", "c", "cpp", "csharp", "swift"):
+        return f"// {name}(...) — source unavailable"
+    if lang in ("go",):
+        return f"// func {name}(...) — source unavailable"
+    if lang in ("rust",):
+        return f"// fn {name}(...) — source unavailable"
+    if lang in ("javascript", "typescript", "tsx"):
+        return f"// function {name}(...) {{ /* source unavailable */ }}"
+    if lang in ("ruby",):
+        return f"# def {name}(...) — source unavailable"
+    # Python default (and unknown)
+    return f"def {name}(...)  # source unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -157,15 +205,30 @@ def serialize_class(node: "LNode", graph: "LayeredGraph") -> str:
 
     short = _short_path(node.file_path)
 
-    # Inheritance — read from source first line of class body
+    # Class header — read the actual declaration line from source.
+    # Falls back to a language-appropriate keyword if source is unavailable.
+    lang = node.language or ""
     try:
         lines = Path(node.file_path).read_text(errors="replace").splitlines()
         class_line = lines[node.line_start - 1].strip()
-        # Extract "class Foo(Bar, Baz):" → "Foo(Bar, Baz)"
-        m = re.match(r'class\s+\w+(\([^)]*\))?', class_line)
-        header = m.group(0) if m else f"class {node.name}"
+        # Match any language's type/class/interface/struct declaration:
+        #   Python:       class Foo(Bar):
+        #   Java/Kotlin:  class Foo extends Bar implements Baz {
+        #   Go:           type Foo struct {
+        #   Rust:         struct Foo {  /  impl Foo {  /  trait Foo {
+        #   JS/TS:        class Foo extends Bar {
+        #   C++:          class Foo : public Bar {
+        #   Ruby:         class Foo < Bar
+        m = re.match(
+            r'(?:pub\s+)?(?:abstract\s+|sealed\s+|data\s+)?'
+            r'(class|struct|interface|trait|impl|type|enum)\s+\w+[^{;]*',
+            class_line,
+        )
+        header = m.group(0).rstrip() if m else f"class {node.name}"
     except (OSError, IndexError):
-        header = f"class {node.name}"
+        # Generic fallback using language hint
+        kw = {"go": "type", "rust": "struct", "c": "struct", "cpp": "struct"}.get(lang, "class")
+        header = f"{kw} {node.name}"
 
     # Methods — direct CONTAINS children that are functions
     methods = [
@@ -174,9 +237,10 @@ def serialize_class(node: "LNode", graph: "LayeredGraph") -> str:
         if e.kind == EdgeKind.CONTAINS and e.target_id in graph.nodes
         and graph.nodes[e.target_id].layer.name == "FUNCTION"
     ]
-    # Sort: dunder last, then alphabetical
+    # Sort: dunder/special methods last (Python __x__, Java <init>), then alphabetical
     def _method_sort_key(n: "LNode") -> tuple:
-        return (1 if n.name.startswith("__") else 0, n.name)
+        is_special = n.name.startswith("__") or n.name.startswith("<")
+        return (1 if is_special else 0, n.name)
     methods.sort(key=_method_sort_key)
 
     method_names = [m.name for m in methods]
@@ -197,28 +261,69 @@ def serialize_function(node: "LNode", graph: "LayeredGraph") -> str:
     """Full function source body.
 
     For functions > 40 lines, returns signature + docstring + truncation marker
-    to keep cost bounded when budget is tight. The selector can request full
-    body explicitly if the budget allows.
+    to keep cost bounded when budget is tight.
     """
     source = _read_source(node.file_path, node.line_start, node.line_end)
     if not source:
-        return f"def {node.name}(...)  # source unavailable"
+        # Language-appropriate unavailable marker
+        lang = node.language or ""
+        sig = _unavailable_sig(node.name, lang)
+        return sig
 
     line_count = node.line_end - node.line_start + 1
     if line_count <= 40:
         return source
 
-    # Truncated: signature + docstring + marker
+    # Truncated: signature + doc comment + marker
+    # Detect docstring/doc-comment closing patterns per language:
+    #   Python:      """  or  '''
+    #   Java/Kotlin/JS: */   (end of block comment)
+    #   Rust/Go:     (no standard multi-line doc; just take signature + first lines)
+    lang = node.language or ""
+    doc_close = {'python': ('"""', "'''"), 'ruby': ('=end',)}.get(lang, ('*/',))
+
     source_lines = source.splitlines()
     result = []
     for line in source_lines[:12]:
         result.append(line)
         stripped = line.strip()
-        # Stop after closing triple-quote of docstring
-        if len(result) > 3 and stripped in ('"""', "'''"):
+        if len(result) > 3 and stripped in doc_close:
             break
-    result.append("    # ... truncated")
+
+    # Language-appropriate truncation comment
+    indent = "    " if lang in ("python", "ruby", "") else "  "
+    cmt = "#" if lang in ("python", "ruby", "") else "//"
+    result.append(f"{indent}{cmt} ... truncated")
     return "\n".join(result)
+
+
+def serialize_function_for_scoring(node: "LNode", graph: "LayeredGraph") -> str:
+    """Serialized function text used exclusively for BM25/scoring — NOT shown to the agent.
+
+    Prepends the qualified name (e.g. "CorrectedCommand.__init__") so that
+    BM25 can match methods whose bare name is generic but whose class context
+    is query-relevant. This is language-agnostic: Java constructors, Go New()
+    functions, C++ operators all benefit from having their type name present.
+
+    The qualified name is NOT added to the agent-visible source (serialize_function)
+    to avoid shifting BM25 corpus statistics for the actual source bodies.
+    """
+    # base = serialize_function(node, graph)
+    base = _read_source(node.file_path, node.line_start, node.line_end)
+
+    # Build qualified name from parent class if bare name is generic or dunder
+    qname = getattr(node, "qualified_name", None)
+    if not qname or qname == node.name:
+        parent = graph.nodes.get(node.parent_id) if node.parent_id else None
+        if parent and parent.layer.name == "CLASS":
+            qname = f"{parent.name}.{node.name}"
+        else:
+            qname = node.name
+
+    # Only prepend if it adds information (i.e. class prefix is present)
+    if qname != node.name:
+        return f"# {qname}\n{base}"
+    return base
 
 
 # ---------------------------------------------------------------------------

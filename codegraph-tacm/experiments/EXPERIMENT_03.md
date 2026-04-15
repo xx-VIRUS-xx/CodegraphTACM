@@ -1,7 +1,7 @@
 # EXPERIMENT_03 — Retriever-in-Agent: Does Better Context → More Solved Bugs?
 
 **Date:** 2026-04-10
-**Status:** Planning
+**Status:** Harness built — ready to run
 **Depends on:** EXPERIMENT_02 (retrieval evaluation complete)
 
 ---
@@ -46,11 +46,12 @@ Only the context provider changes. This is the minimum requirement for a causal 
 
 | Condition | Description | Context given to agent |
 |-----------|-------------|------------------------|
-| Naive | No retriever — agent gets repo file tree only | `ls -R` output, no code |
-| BM25-Body | Top-10 function bodies by BM25 | raw source of top-10 fns |
-| Dense-MiniLM | Top-10 by all-MiniLM-L6-v2 cosine | raw source of top-10 fns |
-| Hybrid-BM25-MiniLM | Top-10 by RRF(BM25, MiniLM) | raw source of top-10 fns |
+| Naive | No retriever — agent gets repo file tree only | `find .py` listing, no code |
+| BM25-Body | Top-K function bodies by BM25, greedy fill | raw source bodies |
+| Dense-MiniLM | Top-K by all-MiniLM-L6-v2 cosine, greedy fill | raw source bodies |
+| Hybrid-BM25-MiniLM | Top-K by RRF(BM25, MiniLM), greedy fill | raw source bodies |
 | TACM-v2 | Budget=4000 token layered selection | TACM serialized context |
+| TACM-v2+L4 | TACM-v2 + Layer 04 (variable dynamic layer) | TACM context + call-chain snippets |
 
 All flat-retriever conditions serve the same token budget as TACM-v2 by concatenating
 top-K function bodies until the budget is reached — not unlimited raw dump.
@@ -179,15 +180,37 @@ tracks only after the agent harness is validated on the bug track.
 
 ---
 
-## Files to build
+## Files (all built)
 
-| File | Description |
-|------|-------------|
-| `agent_harness.py` | Agent loop: retrieval → context → Claude API → patch → test |
-| `context_providers.py` | Adapters: BM25, MiniLM, Hybrid, TACM-v2 → token-budgeted context string |
-| `patch_utils.py` | Apply unified diff to repo, restore original state after each run |
-| `test_runner.py` | Run BugsInPy test file, capture pass/fail + stderr |
-| `bench_agent.py` | Orchestrates all conditions, records metrics, prints result table |
+| File | Description | Status |
+|------|-------------|--------|
+| `agent_harness.py` | Fixed agent loop: retrieval → context → Claude API → patch → test | Done |
+| `context_providers.py` | All 6 conditions + Layer 04 variable layer | Done |
+| `patch_utils.py` | Apply/revert unified diff, restore repo via `git checkout` | Done |
+| `test_runner.py` | Run BugsInPy test file with pytest, capture pass/fail + stderr | Done |
+
+### Layer 04 — Variable Layer (implemented in context_providers.py)
+
+Layer 04 is a dynamic context layer generated on-the-fly from graph edges, not pre-serialized.
+It adapts its content based on query intent:
+
+- **BUG intent** (default for commit-message queries): adds top-2 callers of each selected
+  FUNCTION node as short call-chain snippets. Example:
+  ```
+  # call-chain context
+    called by: get_new_command [pip_unknown_command.py]
+    called by: is_match [types.py]
+  ```
+  Rationale: knowing what calls the buggy function helps the agent understand blast radius
+  and write a fix that doesn't break callers.
+
+- **EXPLAIN intent**: adds cross-file import chains showing which modules import each selected FILE.
+
+- **STRUCTURE intent**: adds module-level docstrings for selected FILE nodes.
+
+Budget: Layer 04 takes 10% of total budget (400 tok at budget=4000), reducing base TACM fill.
+Net effect: slightly less FUNCTION body content, plus caller context chains.
+Experiment 03 ablates this: TACM vs TACM+L4 measures whether caller context helps the agent.
 
 ---
 

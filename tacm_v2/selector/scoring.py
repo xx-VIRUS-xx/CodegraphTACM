@@ -10,6 +10,7 @@ Available signals:
     fan_out     — call out-degree (how many things this calls — orchestrators)
     complexity  — token_cost normalised (large functions are more complex)
     test_cover  — 1 if function has TESTED_BY edge, 0 otherwise
+    nbr_bonus   — adaptive neighborhood support from query-relevant callers/callees
 
 Weight vectors by intent:
     BUG:       bm25=0.50  fan_in=0.25  fan_out=0.10  complexity=0.15  test=0.00
@@ -55,6 +56,136 @@ from .intent import QueryIntent, INTENT_WEIGHTS as _WEIGHTS
 
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _expand_query(query: str, graph: "LayeredGraph") -> str:
+    """Structurally expand a query using graph neighbor names.
+
+    When a query mentions a class or function name, add the names of its
+    direct callers and callees to the query before BM25 scoring. This
+    recovers cases where the bug is in a member function not named in the
+    query (e.g. "WrappedRequest" → adds get_headers, authenticate, etc.).
+
+    Only adds names longer than 3 chars to avoid noise from short tokens.
+    """
+    query_lower = query.lower()
+    expansions: set[str] = set()
+
+    for node in graph.nodes.values():
+        if not node.name or len(node.name) < 4:
+            continue
+        # Check if any part of the node name appears in the query
+        parts = re.split(r"[_\s]", node.name.lower())
+        if not any(p and p in query_lower for p in parts if len(p) > 3):
+            continue
+        # Add caller and callee names as expansion terms
+        for e in graph.out_adj.get(node.node_id, []):
+            nb = graph.nodes.get(e.target_id)
+            if nb and nb.name and len(nb.name) > 3 and not nb.is_test:
+                expansions.add(nb.name.lower())
+        for e in graph.in_adj.get(node.node_id, []):
+            nb = graph.nodes.get(e.source_id)
+            if nb and nb.name and len(nb.name) > 3 and not nb.is_test:
+                expansions.add(nb.name.lower())
+
+    if not expansions:
+        return query
+    # Cap expansion to avoid diluting IDF weights
+    extra = " ".join(list(expansions)[:12])
+    return query + " " + extra
+
+
+def _cascading_bm25(
+    query: str,
+    nodes: list["LNode"],
+    texts: dict[str, str],
+    graph: "LayeredGraph",
+    k1: float = 1.5,
+    b: float = 0.75,
+) -> dict[str, float]:
+    """Run BM25 over three query variants and return per-node maximum.
+
+    Variants:
+      1. Raw query
+      2. camelCase/snake_case split (GetNewCommand → get new command)
+      3. Structurally expanded query (class name → member function names)
+
+    Taking the max rather than averaging ensures a strong hit on any variant
+    is not diluted by weak hits on others.
+    """
+    split = re.sub(r"([A-Z])", r" \1", re.sub(r"_", " ", query)).lower()
+    expanded = _expand_query(query, graph)
+
+    variants = list({query, split, expanded})  # deduplicate
+    all_scores = [compute_bm25(q, nodes, texts, k1, b) for q in variants]
+
+    return {
+        n.node_id: max(s.get(n.node_id, 0.0) for s in all_scores)
+        for n in nodes
+    }
+
+
+def compute_pagerank(
+    nodes: list["LNode"],
+    graph: "LayeredGraph",
+    alpha: float = 0.85,
+    max_iter: int = 50,
+) -> dict[str, float]:
+    """Simplified PageRank over the CALLS subgraph.
+
+    PageRank weights a node's importance by the importance of its callers,
+    not just their count. A function called by three critical orchestrators
+    scores higher than one called by ten test helpers. This is a strictly
+    better signal than raw fan_in for identifying architecturally central
+    functions.
+
+    Uses a sparse power-iteration implementation to avoid NetworkX dependency.
+    Restricted to FUNCTION nodes; normalised to [0, 1].
+    """
+    # Build index over the scored node set only
+    node_ids = {n.node_id for n in nodes}
+
+    # Outgoing edges (for computing dangling nodes)
+    out_links: dict[str, list[str]] = {}
+    in_links: dict[str, list[tuple[str, float]]] = {n.node_id: [] for n in nodes}
+
+    for node in nodes:
+        targets = [
+            (e.target_id, e.weight)
+            for e in graph.out_adj.get(node.node_id, [])
+            if e.kind == EdgeKind.CALLS and e.target_id in node_ids
+        ]
+        out_links[node.node_id] = [t for t, _ in targets]
+        for t, w in targets:
+            in_links[t].append((node.node_id, w))
+
+    N = len(nodes)
+    if N == 0:
+        return {}
+
+    rank = {n.node_id: 1.0 / N for n in nodes}
+
+    for _ in range(max_iter):
+        new_rank: dict[str, float] = {}
+        dangling_sum = sum(
+            rank[nid] for nid in node_ids if not out_links.get(nid)
+        )
+        for node in nodes:
+            nid = node.node_id
+            incoming = sum(
+                rank[src] * w / max(1, len(out_links.get(src, [])))
+                for src, w in in_links.get(nid, [])
+            )
+            new_rank[nid] = (
+                (1 - alpha) / N
+                + alpha * (incoming + dangling_sum / N)
+            )
+        rank = new_rank
+
+    max_val = max(rank.values()) if rank else 1.0
+    if max_val > 0:
+        return {k: v / max_val for k, v in rank.items()}
+    return rank
 
 
 def compute_bm25(
@@ -110,8 +241,11 @@ def compute_fan_in(
 ) -> dict[str, float]:
     """Weighted call in-degree, discounted by name-sharing ambiguity.
 
-    When "send" is called and 4 nodes share the name, each gets 1/4 of the
-    weight. This prevents common names from dominating the signal.
+    Discount is scoped to same-file sharing: `DataFrame.__init__` and
+    `Series.__init__` in different files each get a discount of 1 (no
+    sharing within their file), not 100 (all __init__ across the project).
+    This preserves the disambiguation intent while not collapsing fan_in
+    for genuinely important functions in large API-surface codebases.
 
     Excludes test nodes as sources (test harness calls inflate fan_in).
     """
@@ -125,8 +259,10 @@ def compute_fan_in(
             src = graph.nodes.get(e.source_id)
             if src is None or src.is_test:
                 continue  # exclude test callers
-            # Discount by how many nodes share this target's name
-            sharing = max(1, name_counts.get(node.name, 1))
+            # Discount by how many nodes share this name *within the same file*.
+            # Global name counts collapse fan_in to near-zero for common names
+            # like __init__, get, apply when shared across 100+ classes.
+            sharing = max(1, name_counts.get((node.name, node.file_path), 1))
             weighted += e.weight / sharing
         raw[node.node_id] = weighted
 
@@ -176,6 +312,60 @@ def compute_test_cover(
     }
 
 
+def compute_neighborhood_bonus(
+    nodes: list["LNode"],
+    graph: "LayeredGraph",
+    base_scores: dict[str, float],
+) -> dict[str, float]:
+    """Adaptive support from nearby query-relevant functions.
+
+    Motivation:
+      Bug-fixing often needs a small neighborhood rather than a single function.
+      A target function becomes more patchable when one of its callers is also
+      highly relevant. We therefore add a bounded bonus from neighboring CALLS
+      edges, with callers weighted more strongly than callees.
+
+    The bonus is intentionally local and bounded:
+      - only FUNCTION nodes receive it
+      - only CALLS neighbors contribute
+      - callers matter more than callees
+      - the final value is normalised to [0, 1] before scaling in score_all()
+    """
+    raw: dict[str, float] = {}
+    for node in nodes:
+        if node.layer.name != "FUNCTION":
+            raw[node.node_id] = 0.0
+            continue
+
+        caller_support = 0.0
+        callee_support = 0.0
+
+        for e in graph.in_adj.get(node.node_id, []):
+            if e.kind != EdgeKind.CALLS:
+                continue
+            src = graph.nodes.get(e.source_id)
+            if src is None or src.is_test:
+                continue
+            caller_support += e.weight * base_scores.get(src.node_id, 0.0)
+
+        for e in graph.out_adj.get(node.node_id, []):
+            if e.kind != EdgeKind.CALLS:
+                continue
+            tgt = graph.nodes.get(e.target_id)
+            if tgt is None or tgt.is_test:
+                continue
+            callee_support += e.weight * base_scores.get(tgt.node_id, 0.0)
+
+        # Callers constrain bug fixes more often than callees, so they get a
+        # larger contribution. Callees still help for orchestration functions.
+        raw[node.node_id] = caller_support + 0.5 * callee_support
+
+    max_val = max(raw.values()) if raw else 1.0
+    if max_val > 0:
+        return {k: v / max_val for k, v in raw.items()}
+    return {k: 0.0 for k in raw}
+
+
 # ---------------------------------------------------------------------------
 # Combined scorer
 # ---------------------------------------------------------------------------
@@ -209,21 +399,54 @@ class NodeScorer:
         else:
             self._weights = _WEIGHTS.get(intent, _WEIGHTS[QueryIntent.BUG])
 
-        # Pre-compute name sharing counts for fan_in discount
-        self._name_counts: dict[str, int] = Counter(
-            n.name for n in graph.nodes.values()
+        # Pre-compute per-file name sharing counts for fan_in discount.
+        # Key: (name, file_path) — counts how many functions share a name
+        # within the same file. Much smaller than global name counts, so
+        # common names like __init__ only get discounted when genuinely
+        # ambiguous (e.g. two closures named __init__ in the same file).
+        self._name_counts: dict[tuple[str, str | None], int] = Counter(
+            (n.name, n.file_path) for n in graph.nodes.values()
             if n.layer.name == "FUNCTION"
         )
 
     def score_all(self, nodes: list["LNode"]) -> dict[str, float]:
-        """Compute combined intent-weighted score for each node."""
+        """Compute combined intent-weighted score for each node.
+
+        Uses adaptive BM25 weighting: when the query produces weak BM25 signal
+        across all nodes (mean normalised score < BM25_WEAK_THRESHOLD), the BM25
+        weight is reduced and redistributed to graph signals (fan_in, fan_out,
+        complexity). This handles:
+          - Vague commit-message queries ("Fix without result", "Tests!")
+          - Queries where domain vocabulary doesn't appear in function text
+        When BM25 is strong, the original weights are used unchanged.
+        """
         if not nodes:
             return {}
 
         w_bm25, w_fan_in, w_fan_out, w_complex, w_test = self._weights
 
-        # Compute each signal
-        bm25     = compute_bm25(self._query, nodes, self._texts)
+        # Always compute BM25 first — needed for adaptive weight decision
+        bm25 = compute_bm25(self._query, nodes, self._texts)
+
+        # Adaptive weight: if average BM25 score is very weak, shift weight
+        # from BM25 toward graph signals proportionally.
+        # Threshold: mean normalised BM25 < 0.01 means the query has near-zero
+        # keyword overlap with all nodes — graph structure should dominate.
+        BM25_WEAK_THRESHOLD = 0.01
+        bm25_values = list(bm25.values())
+        mean_bm25 = sum(bm25_values) / len(bm25_values) if bm25_values else 0.0
+
+        if mean_bm25 < BM25_WEAK_THRESHOLD and w_bm25 > 0:
+            # Redistribute half of BM25 weight to graph signals proportionally
+            bm25_shed = w_bm25 * 0.5
+            graph_total = w_fan_in + w_fan_out + w_complex + w_test
+            if graph_total > 0:
+                w_fan_in  = w_fan_in  + bm25_shed * (w_fan_in  / graph_total if graph_total else 0.25)
+                w_fan_out = w_fan_out + bm25_shed * (w_fan_out / graph_total if graph_total else 0.25)
+                w_complex = w_complex + bm25_shed * (w_complex / graph_total if graph_total else 0.25)
+                w_test    = w_test    + bm25_shed * (w_test    / graph_total if graph_total else 0.25)
+            w_bm25 = w_bm25 - bm25_shed
+
         fan_in   = compute_fan_in(nodes, self._graph, self._name_counts)  if w_fan_in   > 0 else {}
         fan_out  = compute_fan_out(nodes, self._graph)                    if w_fan_out  > 0 else {}
         complex_ = compute_complexity(nodes)                              if w_complex  > 0 else {}
@@ -240,6 +463,28 @@ class NodeScorer:
               + w_test    * test.get(nid, 0.0)
             )
             scores[nid] = s
+
+        # Neighborhood support is applied as a bounded post-score bonus.
+        # It is stronger when lexical signal is weak, because that is where
+        # structural context has to carry more of the retrieval burden.
+        neighborhood = compute_neighborhood_bonus(nodes, self._graph, scores)
+        nbr_scale = 0.08 if mean_bm25 >= BM25_WEAK_THRESHOLD else 0.15
+        for node in nodes:
+            if node.layer.name != "FUNCTION":
+                continue
+            nid = node.node_id
+            scores[nid] = min(1.0, scores[nid] + nbr_scale * neighborhood.get(nid, 0.0))
+
+        # PageRank bonus: weights a node by the importance of its callers,
+        # not just their count. Applied as a small bounded bonus so it
+        # supplements rather than overrides the BM25+fan_in weighted score.
+        # Stronger when BM25 is weak — structural signal carries more weight.
+        fn_nodes = [n for n in nodes if n.layer.name == "FUNCTION"]
+        pr = compute_pagerank(fn_nodes, self._graph)
+        pr_scale = 0.06 if mean_bm25 >= BM25_WEAK_THRESHOLD else 0.12
+        for node in fn_nodes:
+            nid = node.node_id
+            scores[nid] = min(1.0, scores[nid] + pr_scale * pr.get(nid, 0.0))
 
         return scores
 

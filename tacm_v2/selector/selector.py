@@ -1,24 +1,16 @@
-"""selector.py — Context pool selector for the layered graph.
+"""selector.py — Context pool selectors for the layered graph.
 
-Given a query and a token budget, the selector:
+Two selectors are provided:
 
-1. Scores every node across all three layers using graph signals + query relevance
-2. Decides the layer mix — how much budget to spend at each abstraction level
-3. Picks the specific nodes within each layer to fill the budget
+1. `select()`:
+   Original TACM-v2 behavior. Scores nodes by layer, allocates a fixed per-layer
+   budget from query intent, then greedily fills each layer in order.
 
-The layer mix is driven by query intent:
-    "structure / overview / architecture"  → more FILE + CLASS, less FUNCTION
-    "bug / why / failing / error"          → more FUNCTION, some CLASS for context
-    "what does X do / explain"             → CLASS + FUNCTION mix
-
-Within each layer, nodes are scored by:
-    - Query relevance: BM25 on the serialized text of that node at its layer
-    - Graph centrality: weighted in-degree (how many things point to this node)
-    - Containment bonus: if a selected parent is already in context, its children
-      score higher (they explain something the selector already showed the LLM)
-
-Selection uses a greedy fill per layer: sort by score, take until layer budget exhausted.
-The selector is intentionally simple — correctness before cleverness.
+2. `select_dynamic()`:
+   Cross-layer budget allocation. It seeds a small amount of structure, then
+   lets all remaining nodes compete for budget globally. This targets the main
+   weakness seen in Experiment 03: hard function exclusion caused by rigid layer
+   quotas, even when highly relevant functions remain.
 """
 
 from __future__ import annotations
@@ -26,9 +18,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..graph.model import Layer, LayeredGraph, LNode, EdgeKind
-from ..layers.serializers import serialize, serialized_token_cost
-from .intent import QueryIntent, classify_intent, LAYER_BUDGETS as _LAYER_BUDGETS
+from ..graph.model import Layer, LayeredGraph, LNode
+from ..layers.serializers import serialize, serialize_function_for_scoring
+from .intent import classify_intent, LAYER_BUDGETS as _LAYER_BUDGETS
 from .scoring import NodeScorer
 
 
@@ -63,6 +55,27 @@ class SelectionResult:
         return separator.join(n.text for n in self.nodes)
 
 
+def _prepare_serialized_texts(
+    graph: LayeredGraph,
+    exclude_tests: bool,
+) -> tuple[list[LNode], dict[str, str], dict[str, str]]:
+    """Return all selectable nodes plus agent/scoring text views."""
+    all_nodes = [
+        n for n in graph.nodes.values()
+        if not (exclude_tests and n.is_test)
+    ]
+    agent_texts: dict[str, str] = {n.node_id: serialize(n, graph) for n in all_nodes}
+    score_texts: dict[str, str] = {
+        n.node_id: (
+            serialize_function_for_scoring(n, graph)
+            if n.layer == Layer.FUNCTION
+            else agent_texts[n.node_id]
+        )
+        for n in all_nodes
+    }
+    return all_nodes, agent_texts, score_texts
+
+
 def select(
     graph: LayeredGraph,
     query: str,
@@ -82,7 +95,7 @@ def select(
     if intent is None:
         intent = classify_intent(query)
 
-    file_frac, class_frac, fn_frac = _LAYER_BUDGETS[intent]
+    file_frac, class_frac, _ = _LAYER_BUDGETS[intent]
     file_budget  = int(token_budget * file_frac)
     class_budget = int(token_budget * class_frac)
     fn_budget    = token_budget - file_budget - class_budget
@@ -90,15 +103,10 @@ def select(
     selected: list[SelectedNode] = []
     layer_counts: dict[str, int] = {}
 
-    # Pre-serialize all nodes once — scorer and greedy fill both need the text
-    all_nodes = [
-        n for n in graph.nodes.values()
-        if not (exclude_tests and n.is_test)
-    ]
-    texts: dict[str, str] = {n.node_id: serialize(n, graph) for n in all_nodes}
+    all_nodes, agent_texts, score_texts = _prepare_serialized_texts(graph, exclude_tests)
 
     # Build one scorer for the whole query — shared across all layers
-    scorer = NodeScorer(graph, query, intent, texts)
+    scorer = NodeScorer(graph, query, intent, score_texts)
 
     # Tracks node_ids selected so far — used for containment bonus.
     # Populated after each layer, read by the next layer down.
@@ -149,7 +157,7 @@ def select(
         remaining = budget
         count = 0
         for score, node in node_scores:
-            text = texts[node.node_id]
+            text = agent_texts[node.node_id]
             cost = _count_tokens(text)
             if cost <= remaining:
                 selected.append(SelectedNode(
@@ -178,3 +186,177 @@ def select(
 
 def _count_tokens(text: str) -> int:
     return max(1, len(text) // 4)
+
+
+def _diversity_penalty(
+    node: LNode,
+    parent_counts: dict[str, int],
+    file_counts: dict[str, int],
+) -> float:
+    """Return a bounded redundancy penalty for over-clustered selections.
+
+    Intuition:
+      A coherent local neighborhood is useful, but after selecting several
+      nodes from the same parent/file, additional siblings often become less
+      valuable than the best function from a nearby but distinct area.
+
+    Policy:
+      - first 2 children from a parent are free
+      - first 3 nodes from a file are free
+      - penalty grows gently after that, capped so relevance still dominates
+    """
+    penalty = 0.0
+    if node.parent_id:
+        extra_siblings = max(0, parent_counts.get(node.parent_id, 0) - 1)
+        penalty += min(0.12, 0.04 * extra_siblings)
+
+    if node.file_path:
+        extra_file_nodes = max(0, file_counts.get(node.file_path, 0) - 2)
+        penalty += min(0.12, 0.03 * extra_file_nodes)
+
+    return min(0.18, penalty)
+
+
+def select_dynamic(
+    graph: LayeredGraph,
+    query: str,
+    token_budget: int,
+    intent: Optional[str] = None,
+    exclude_tests: bool = True,
+) -> SelectionResult:
+    """Cross-layer TACM selector with dynamic budget allocation.
+
+    Strategy:
+    1. Score each layer independently with the same NodeScorer.
+    2. Seed a minimal structural skeleton (top FILE and top CLASS when useful).
+    3. Let all remaining nodes compete for the rest of the budget globally.
+    4. Apply the same containment bonus during global selection.
+
+    This keeps TACM's structural priors while avoiding the rigid layer split
+    that excluded too many functions in the budgeted Experiment 03 setting.
+    """
+    if intent is None:
+        intent = classify_intent(query)
+
+    selected: list[SelectedNode] = []
+    selected_ids: set[str] = set()
+    layer_counts: dict[str, int] = {}
+    parent_counts: dict[str, int] = {}
+    file_counts: dict[str, int] = {}
+
+    all_nodes, agent_texts, score_texts = _prepare_serialized_texts(graph, exclude_tests)
+    scorer = NodeScorer(graph, query, intent, score_texts)
+
+    by_layer: dict[Layer, list[LNode]] = {
+        layer: [
+            n for n in graph.nodes_at_layer(layer)
+            if not (exclude_tests and n.is_test)
+        ]
+        for layer in (Layer.FILE, Layer.CLASS, Layer.FUNCTION)
+    }
+    base_scores: dict[str, float] = {}
+    for layer, nodes in by_layer.items():
+        if nodes:
+            base_scores.update(scorer.score_all(nodes))
+
+    remaining = token_budget
+    containment_bonus = 0.15
+
+    # Seed a tiny amount of structure so the global pass has something to
+    # attach to, but do not pre-commit large quotas by layer.
+    seed_targets = {
+        "bug": (1, 1),
+        "explain": (1, 1),
+        "structure": (2, 2),
+    }
+    seed_files, seed_classes = seed_targets.get(intent, (1, 1))
+
+    def _pick_top_seed(layer: Layer, count: int) -> None:
+        nonlocal remaining
+        if count <= 0:
+            return
+        ranked = sorted(
+            by_layer.get(layer, []),
+            key=lambda n: -base_scores.get(n.node_id, 0.0),
+        )
+        picked = 0
+        for node in ranked:
+            if node.node_id in selected_ids:
+                continue
+            text = agent_texts[node.node_id]
+            cost = _count_tokens(text)
+            if cost > remaining:
+                continue
+            selected.append(SelectedNode(
+                node=node,
+                layer=layer,
+                text=text,
+                token_cost=cost,
+                score=base_scores.get(node.node_id, 0.0),
+                intent=intent,
+            ))
+            selected_ids.add(node.node_id)
+            layer_counts[layer.name] = layer_counts.get(layer.name, 0) + 1
+            if node.parent_id:
+                parent_counts[node.parent_id] = parent_counts.get(node.parent_id, 0) + 1
+            if node.file_path:
+                file_counts[node.file_path] = file_counts.get(node.file_path, 0) + 1
+            remaining -= cost
+            picked += 1
+            if picked >= count:
+                break
+
+    _pick_top_seed(Layer.FILE, seed_files)
+    _pick_top_seed(Layer.CLASS, seed_classes)
+
+    # Global competition for the remaining budget.
+    remaining_nodes = [n for n in all_nodes if n.node_id not in selected_ids]
+    while remaining > 0 and remaining_nodes:
+        best_node: LNode | None = None
+        best_score = -1.0
+        best_cost = 0
+
+        for node in remaining_nodes:
+            text = agent_texts[node.node_id]
+            cost = _count_tokens(text)
+            if cost > remaining:
+                continue
+
+            adjusted = base_scores.get(node.node_id, 0.0)
+            if node.parent_id and node.parent_id in selected_ids:
+                adjusted = min(1.0, adjusted + containment_bonus)
+            adjusted = max(0.0, adjusted - _diversity_penalty(node, parent_counts, file_counts))
+
+            if adjusted > best_score:
+                best_node = node
+                best_score = adjusted
+                best_cost = cost
+
+        if best_node is None:
+            break
+
+        selected.append(SelectedNode(
+            node=best_node,
+            layer=best_node.layer,
+            text=agent_texts[best_node.node_id],
+            token_cost=best_cost,
+            score=best_score,
+            intent=intent,
+        ))
+        selected_ids.add(best_node.node_id)
+        layer_counts[best_node.layer.name] = layer_counts.get(best_node.layer.name, 0) + 1
+        if best_node.parent_id:
+            parent_counts[best_node.parent_id] = parent_counts.get(best_node.parent_id, 0) + 1
+        if best_node.file_path:
+            file_counts[best_node.file_path] = file_counts.get(best_node.file_path, 0) + 1
+        remaining -= best_cost
+        remaining_nodes = [n for n in remaining_nodes if n.node_id != best_node.node_id]
+
+    total = sum(n.token_cost for n in selected)
+    return SelectionResult(
+        nodes=selected,
+        total_tokens=total,
+        budget=token_budget,
+        intent=intent,
+        layer_counts=layer_counts,
+    )

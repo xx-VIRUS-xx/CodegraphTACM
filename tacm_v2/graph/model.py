@@ -75,6 +75,11 @@ class LNode:
     # Containment — which nodes own this one (populated by GraphBuilder)
     parent_id:      Optional[str] = None   # direct container's node_id
 
+    # Source language — from tree-sitter parser (python, java, go, rust, etc.)
+    # Empty string means unknown/not yet parsed. Used by serializers for
+    # language-agnostic text generation (comment syntax, class keyword, etc.)
+    language:       str   = ""
+
     # Pre-computed signals (populated by GraphBuilder)
     in_degree:      int   = 0    # number of edges pointing INTO this node
     out_degree:     int   = 0    # number of edges pointing OUT of this node
