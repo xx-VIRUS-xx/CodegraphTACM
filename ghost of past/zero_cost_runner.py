@@ -281,22 +281,27 @@ def _match_ranked_functions(
 ) -> dict:
     """Match ranked function nodes against GT. Returns metrics dict.
 
+    Ranks are computed over the **full ranked list** (true MRR semantics).
+    The ``top_k`` argument is only used to compute ``top_k_tokens`` and the
+    Hit@K boolean derived upstream (``fn_hit = strict_rank <= top_k``).
+
     Returns:
-        strict_rank:  1-based rank of first strict fn match, or None
-        lenient_rank: 1-based rank of first lenient fn match, or None
-        file_rank:    1-based rank of first file match (from fn list), or None
-        top_k_tokens: total tokens in the top-K nodes
+        strict_rank:  1-based rank of first strict fn match in full list, or None
+        lenient_rank: 1-based rank of first lenient fn match in full list, or None
+        file_rank:    1-based rank of first file match in full list, or None
+        top_k_tokens: total tokens in the top-K nodes (for efficiency metric)
     """
     strict_rank = None
     lenient_rank = None
     file_rank = None
     top_k_tokens = 0
 
-    for rank, node in enumerate(ranked_nodes[:top_k], 1):
+    for rank, node in enumerate(ranked_nodes, 1):
         nid = getattr(node, "node_id", getattr(node, "qualified_name", ""))
         nfile = getattr(node, "file_path", "") or ""
         tcost = getattr(node, "token_cost", 0)
-        top_k_tokens += tcost
+        if rank <= top_k:
+            top_k_tokens += tcost
 
         for gt_fn in gt_fns:
             if strict_rank is None and _fn_matches_gt_strict(nid, nfile, gt_fn, gt_files):
@@ -306,7 +311,7 @@ def _match_ranked_functions(
         if file_rank is None and _file_matches_gt(nfile, gt_files):
             file_rank = rank
 
-        if strict_rank and lenient_rank and file_rank:
+        if strict_rank and lenient_rank and file_rank and rank >= top_k:
             break
 
     return {
@@ -626,24 +631,44 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
         return bm25_ranked
 
     if condition == "tacm":
-        from tacm_v2.layers.serializers import serialize
+        from tacm_v2.graph.model import Layer
+        from tacm_v2.layers.serializers import serialize, serialize_function_for_scoring
         from tacm_v2.selector.intent import classify_intent
         from tacm_v2.selector.scoring import NodeScorer
         intent = classify_intent(query)
         all_nodes = [n for n in graph.nodes.values() if not n.is_test]
-        texts = {n.node_id: serialize(n, graph) for n in all_nodes}
-        scorer = NodeScorer(graph, query, intent, texts)
+        # Use the same (agent_text, scoring_text) split as selector.select() —
+        # scoring on agent-facing text alone under-reports TACM because
+        # serialize_function_for_scoring includes docstring+signature context
+        # that production uses.
+        agent_texts = {n.node_id: serialize(n, graph) for n in all_nodes}
+        score_texts = {
+            n.node_id: (
+                serialize_function_for_scoring(n, graph)
+                if n.layer == Layer.FUNCTION else agent_texts[n.node_id]
+            )
+            for n in all_nodes
+        }
+        scorer = NodeScorer(graph, query, intent, score_texts)
         scores = scorer.score_all(fn_nodes)
         return sorted(fn_nodes, key=lambda n: -scores[n.node_id])
 
     if condition == "tacm-rerank":
-        from tacm_v2.layers.serializers import serialize
+        from tacm_v2.graph.model import Layer
+        from tacm_v2.layers.serializers import serialize, serialize_function_for_scoring
         from tacm_v2.selector.intent import classify_intent
         from tacm_v2.selector.scoring import NodeScorer
         intent = classify_intent(query)
         all_nodes = [n for n in graph.nodes.values() if not n.is_test]
-        texts = {n.node_id: serialize(n, graph) for n in all_nodes}
-        scorer = NodeScorer(graph, query, intent, texts)
+        agent_texts = {n.node_id: serialize(n, graph) for n in all_nodes}
+        score_texts = {
+            n.node_id: (
+                serialize_function_for_scoring(n, graph)
+                if n.layer == Layer.FUNCTION else agent_texts[n.node_id]
+            )
+            for n in all_nodes
+        }
+        scorer = NodeScorer(graph, query, intent, score_texts)
         scores = scorer.score_all(fn_nodes)
         tacm_ranked = sorted(fn_nodes, key=lambda n: -scores[n.node_id])
         return _llm_rerank(query, tacm_ranked[:40])
@@ -1102,8 +1127,13 @@ def _run_condition(
     result["fn_lenient_rank"] = match["lenient_rank"]
     result["file_rank"] = match["file_rank"]
     result["top_k_tokens"] = match["top_k_tokens"]
-    result["fn_hit"] = match["strict_rank"] is not None
-    result["file_hit"] = match["file_rank"] is not None
+    # Hit@K derived from full-list ranks so MRR and Hit@K stay consistent.
+    result["fn_hit"] = (
+        match["strict_rank"] is not None and match["strict_rank"] <= top_k
+    )
+    result["file_hit"] = (
+        match["file_rank"] is not None and match["file_rank"] <= top_k
+    )
 
     # Generate diagnostic trace for TACM conditions
     if trace and condition.startswith("tacm"):

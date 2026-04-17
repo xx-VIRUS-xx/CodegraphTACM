@@ -300,18 +300,22 @@ def serialize_function(node: "LNode", graph: "LayeredGraph") -> str:
 def serialize_function_for_scoring(node: "LNode", graph: "LayeredGraph") -> str:
     """Serialized function text used exclusively for BM25/scoring — NOT shown to the agent.
 
-    Prepends the qualified name (e.g. "CorrectedCommand.__init__") so that
-    BM25 can match methods whose bare name is generic but whose class context
-    is query-relevant. This is language-agnostic: Java constructors, Go New()
-    functions, C++ operators all benefit from having their type name present.
+    Prepends two headers the agent never sees:
 
-    The qualified name is NOT added to the agent-visible source (serialize_function)
-    to avoid shifting BM25 corpus statistics for the actual source bodies.
+      1. A ``# path:`` line with the short file path, so queries mentioning
+         filenames or module names ("requests/auth.py", "digest") get BM25
+         credit even when the body doesn't repeat them.
+      2. A ``# qname:`` line with the qualified name (``ClassName.method``)
+         repeated twice, so the class prefix carries meaningful ``tf`` weight
+         against ~150-token bodies. Repetition is cheap and language-agnostic.
+
+    This text is only ever seen by scoring — the agent-facing serializer
+    (:func:`serialize_function`) is untouched, so downstream token cost and
+    rendered context are unchanged.
     """
-    # base = serialize_function(node, graph)
     base = _read_source(node.file_path, node.line_start, node.line_end)
 
-    # Build qualified name from parent class if bare name is generic or dunder
+    # Build qualified name from parent class if not already set.
     qname = getattr(node, "qualified_name", None)
     if not qname or qname == node.name:
         parent = graph.nodes.get(node.parent_id) if node.parent_id else None
@@ -320,10 +324,19 @@ def serialize_function_for_scoring(node: "LNode", graph: "LayeredGraph") -> str:
         else:
             qname = node.name
 
-    # Only prepend if it adds information (i.e. class prefix is present)
+    short = _short_path(node.file_path) if node.file_path else ""
+    header_lines: list[str] = []
+    if short:
+        header_lines.append(f"# path: {short}")
+    # Repeat qualified name twice so BM25 tf gives it real weight against
+    # the ~150-token body. Only repeat when it actually adds info.
     if qname != node.name:
-        return f"# {qname}\n{base}"
-    return base
+        header_lines.append(f"# qname: {qname}")
+        header_lines.append(f"# qname: {qname}")
+    else:
+        header_lines.append(f"# qname: {qname}")
+
+    return "\n".join(header_lines + [base])
 
 
 # ---------------------------------------------------------------------------

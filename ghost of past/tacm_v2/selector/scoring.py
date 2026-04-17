@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from ..graph.model import LayeredGraph, LNode, Layer
 from ..graph.model import EdgeKind
 from .intent import QueryIntent, INTENT_WEIGHTS as _WEIGHTS
+from .config import DEFAULT_CONFIG, SelectorConfig
+from .cache import get_scorer_cache
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +60,11 @@ def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
 
 
-def _expand_query(query: str, graph: "LayeredGraph") -> str:
+def _expand_query(
+    query: str,
+    graph: "LayeredGraph",
+    expansion_cap: int = 12,
+) -> str:
     """Structurally expand a query using graph neighbor names.
 
     When a query mentions a class or function name, add the names of its
@@ -67,6 +73,8 @@ def _expand_query(query: str, graph: "LayeredGraph") -> str:
     query (e.g. "WrappedRequest" → adds get_headers, authenticate, etc.).
 
     Only adds names longer than 3 chars to avoid noise from short tokens.
+    ``expansion_cap`` bounds the number of extra terms to avoid diluting
+    IDF weights on large graphs.
     """
     query_lower = query.lower()
     expansions: set[str] = set()
@@ -74,11 +82,9 @@ def _expand_query(query: str, graph: "LayeredGraph") -> str:
     for node in graph.nodes.values():
         if not node.name or len(node.name) < 4:
             continue
-        # Check if any part of the node name appears in the query
         parts = re.split(r"[_\s]", node.name.lower())
         if not any(p and p in query_lower for p in parts if len(p) > 3):
             continue
-        # Add caller and callee names as expansion terms
         for e in graph.out_adj.get(node.node_id, []):
             nb = graph.nodes.get(e.target_id)
             if nb and nb.name and len(nb.name) > 3 and not nb.is_test:
@@ -90,8 +96,7 @@ def _expand_query(query: str, graph: "LayeredGraph") -> str:
 
     if not expansions:
         return query
-    # Cap expansion to avoid diluting IDF weights
-    extra = " ".join(list(expansions)[:12])
+    extra = " ".join(list(expansions)[:expansion_cap])
     return query + " " + extra
 
 
@@ -102,6 +107,7 @@ def _cascading_bm25(
     graph: "LayeredGraph",
     k1: float = 1.5,
     b: float = 0.75,
+    expansion_cap: int = 12,
 ) -> dict[str, float]:
     """Run BM25 over three query variants and return per-node maximum.
 
@@ -112,9 +118,12 @@ def _cascading_bm25(
 
     Taking the max rather than averaging ensures a strong hit on any variant
     is not diluted by weak hits on others.
+
+    Opt-in via :data:`SelectorConfig.use_cascading_bm25` to preserve
+    previous benchmark numbers by default.
     """
     split = re.sub(r"([A-Z])", r" \1", re.sub(r"_", " ", query)).lower()
-    expanded = _expand_query(query, graph)
+    expanded = _expand_query(query, graph, expansion_cap=expansion_cap)
 
     variants = list({query, split, expanded})  # deduplicate
     all_scores = [compute_bm25(q, nodes, texts, k1, b) for q in variants]
@@ -214,6 +223,11 @@ def compute_bm25(
     }
 
     avgdl = sum(len(d) for d in corpus) / N if N else 1.0
+    # Guard against all-empty corpora (e.g. serializers returned empty strings
+    # because source files weren't on disk). Without this the inner denom
+    # computation divides by zero.
+    if avgdl == 0:
+        return {n.node_id: 0.0 for n in nodes}
 
     raw: dict[str, float] = {}
     for node, doc in zip(nodes, corpus):
@@ -367,6 +381,93 @@ def compute_neighborhood_bonus(
 
 
 # ---------------------------------------------------------------------------
+# Identifier-match signals (FUNCTION disambiguation)
+# ---------------------------------------------------------------------------
+
+def _split_identifier(name: str) -> list[str]:
+    """Split an identifier on _ and CamelCase into lowercase token list."""
+    if not name:
+        return []
+    # Split snake_case, then CamelCase.
+    pieces: list[str] = []
+    for chunk in name.split("_"):
+        pieces.extend(re.findall(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z0-9]+|[A-Z]+", chunk))
+    return [p.lower() for p in pieces if p]
+
+
+def compute_name_match(
+    query: str,
+    nodes: list["LNode"],
+    graph: "LayeredGraph",
+    min_len: int = 3,
+) -> dict[str, float]:
+    """Fraction of (informative) query tokens that appear in the function's
+    bare name or its qualified name (ClassName.method).
+
+    BM25 on 150-token bodies drowns out name hits. This signal isolates the
+    name channel so that ``build_digest_header`` wins on a query like
+    "digest header" even when sibling methods share the rest of the corpus.
+    Computed only for FUNCTION nodes; other layers get 0.
+    """
+    q_tokens = {t for t in _tokenize(query) if len(t) >= min_len}
+    if not q_tokens:
+        return {n.node_id: 0.0 for n in nodes}
+
+    raw: dict[str, float] = {}
+    for node in nodes:
+        if node.layer.name != "FUNCTION":
+            raw[node.node_id] = 0.0
+            continue
+
+        # Build identifier token set from bare + qualified name.
+        tokens: set[str] = set(_split_identifier(node.name))
+        parent = graph.nodes.get(node.parent_id) if node.parent_id else None
+        if parent is not None and parent.name:
+            tokens.update(_split_identifier(parent.name))
+        qname = getattr(node, "qualified_name", None)
+        if qname:
+            tokens.update(_split_identifier(qname))
+
+        tokens = {t for t in tokens if len(t) >= min_len}
+        if not tokens:
+            raw[node.node_id] = 0.0
+            continue
+
+        hits = sum(1 for q in q_tokens if q in tokens)
+        raw[node.node_id] = hits / len(q_tokens)
+
+    # Already in [0, 1] by construction — no further normalisation.
+    return raw
+
+
+def compute_path_match(
+    query: str,
+    nodes: list["LNode"],
+    min_len: int = 4,
+) -> dict[str, float]:
+    """Fraction of (informative) query tokens that appear in the file path.
+
+    Bug reports frequently say "in requests/auth.py" or mention a module
+    name. BM25 on the function body never sees the path. This signal closes
+    that gap. Applied to any layer (file/class/function) — paths are always
+    present.
+    """
+    q_tokens = {t for t in _tokenize(query) if len(t) >= min_len}
+    if not q_tokens:
+        return {n.node_id: 0.0 for n in nodes}
+
+    raw: dict[str, float] = {}
+    for node in nodes:
+        if not node.file_path:
+            raw[node.node_id] = 0.0
+            continue
+        path_tokens = set(_tokenize(node.file_path))
+        hits = sum(1 for q in q_tokens if q in path_tokens)
+        raw[node.node_id] = hits / len(q_tokens)
+    return raw
+
+
+# ---------------------------------------------------------------------------
 # Combined scorer
 # ---------------------------------------------------------------------------
 
@@ -385,11 +486,13 @@ class NodeScorer:
         intent: str,
         texts: dict[str, str],   # node_id -> serialized text (pre-computed)
         weight_override: dict[str, float] | None = None,
+        config: SelectorConfig = DEFAULT_CONFIG,
     ):
         self._graph  = graph
         self._query  = query
         self._intent = intent
         self._texts  = texts
+        self._config = config
         if weight_override is not None:
             base = _WEIGHTS.get(intent, _WEIGHTS[QueryIntent.BUG])
             keys = ("bm25", "fan_in", "fan_out", "complexity", "test_cover")
@@ -399,52 +502,54 @@ class NodeScorer:
         else:
             self._weights = _WEIGHTS.get(intent, _WEIGHTS[QueryIntent.BUG])
 
-        # Pre-compute per-file name sharing counts for fan_in discount.
-        # Key: (name, file_path) — counts how many functions share a name
-        # within the same file. Much smaller than global name counts, so
-        # common names like __init__ only get discounted when genuinely
-        # ambiguous (e.g. two closures named __init__ in the same file).
-        self._name_counts: dict[tuple[str, str | None], int] = Counter(
-            (n.name, n.file_path) for n in graph.nodes.values()
-            if n.layer.name == "FUNCTION"
-        )
+        # Query-independent signals (PageRank, name-counts) are cached per
+        # graph. This turns a per-query O(N * iters) PageRank recomputation
+        # into a one-shot cost amortised across the whole benchmark.
+        cache = get_scorer_cache(graph, config)
+        self._name_counts = cache.name_counts
+        self._pagerank_full = cache.pagerank
 
     def score_all(self, nodes: list["LNode"]) -> dict[str, float]:
         """Compute combined intent-weighted score for each node.
 
         Uses adaptive BM25 weighting: when the query produces weak BM25 signal
-        across all nodes (mean normalised score < BM25_WEAK_THRESHOLD), the BM25
-        weight is reduced and redistributed to graph signals (fan_in, fan_out,
-        complexity). This handles:
-          - Vague commit-message queries ("Fix without result", "Tests!")
-          - Queries where domain vocabulary doesn't appear in function text
+        across all nodes (mean normalised score < ``config.bm25_weak_threshold``),
+        a fraction of the BM25 weight (``config.bm25_shed_fraction``) is
+        redistributed to graph signals (fan_in, fan_out, complexity, test).
         When BM25 is strong, the original weights are used unchanged.
+
+        When ``config.use_cascading_bm25`` is true, BM25 is run over three
+        query variants (raw / split / structurally-expanded) and the per-node
+        maximum is taken — helps on CamelCase and class-name queries.
         """
         if not nodes:
             return {}
 
+        cfg = self._config
         w_bm25, w_fan_in, w_fan_out, w_complex, w_test = self._weights
 
         # Always compute BM25 first — needed for adaptive weight decision
-        bm25 = compute_bm25(self._query, nodes, self._texts)
+        if cfg.use_cascading_bm25:
+            bm25 = _cascading_bm25(
+                self._query, nodes, self._texts, self._graph,
+                expansion_cap=cfg.cascading_expansion_cap,
+            )
+        else:
+            bm25 = compute_bm25(self._query, nodes, self._texts)
 
         # Adaptive weight: if average BM25 score is very weak, shift weight
         # from BM25 toward graph signals proportionally.
-        # Threshold: mean normalised BM25 < 0.01 means the query has near-zero
-        # keyword overlap with all nodes — graph structure should dominate.
-        BM25_WEAK_THRESHOLD = 0.01
         bm25_values = list(bm25.values())
         mean_bm25 = sum(bm25_values) / len(bm25_values) if bm25_values else 0.0
 
-        if mean_bm25 < BM25_WEAK_THRESHOLD and w_bm25 > 0:
-            # Redistribute half of BM25 weight to graph signals proportionally
-            bm25_shed = w_bm25 * 0.5
+        if mean_bm25 < cfg.bm25_weak_threshold and w_bm25 > 0:
+            bm25_shed = w_bm25 * cfg.bm25_shed_fraction
             graph_total = w_fan_in + w_fan_out + w_complex + w_test
             if graph_total > 0:
-                w_fan_in  = w_fan_in  + bm25_shed * (w_fan_in  / graph_total if graph_total else 0.25)
-                w_fan_out = w_fan_out + bm25_shed * (w_fan_out / graph_total if graph_total else 0.25)
-                w_complex = w_complex + bm25_shed * (w_complex / graph_total if graph_total else 0.25)
-                w_test    = w_test    + bm25_shed * (w_test    / graph_total if graph_total else 0.25)
+                w_fan_in  = w_fan_in  + bm25_shed * (w_fan_in  / graph_total)
+                w_fan_out = w_fan_out + bm25_shed * (w_fan_out / graph_total)
+                w_complex = w_complex + bm25_shed * (w_complex / graph_total)
+                w_test    = w_test    + bm25_shed * (w_test    / graph_total)
             w_bm25 = w_bm25 - bm25_shed
 
         fan_in   = compute_fan_in(nodes, self._graph, self._name_counts)  if w_fan_in   > 0 else {}
@@ -465,26 +570,60 @@ class NodeScorer:
             scores[nid] = s
 
         # Neighborhood support is applied as a bounded post-score bonus.
-        # It is stronger when lexical signal is weak, because that is where
-        # structural context has to carry more of the retrieval burden.
         neighborhood = compute_neighborhood_bonus(nodes, self._graph, scores)
-        nbr_scale = 0.08 if mean_bm25 >= BM25_WEAK_THRESHOLD else 0.15
+        nbr_scale = (
+            cfg.neighborhood_scale_strong
+            if mean_bm25 >= cfg.bm25_weak_threshold
+            else cfg.neighborhood_scale_weak
+        )
         for node in nodes:
             if node.layer.name != "FUNCTION":
                 continue
             nid = node.node_id
             scores[nid] = min(1.0, scores[nid] + nbr_scale * neighborhood.get(nid, 0.0))
 
-        # PageRank bonus: weights a node by the importance of its callers,
-        # not just their count. Applied as a small bounded bonus so it
-        # supplements rather than overrides the BM25+fan_in weighted score.
-        # Stronger when BM25 is weak — structural signal carries more weight.
-        fn_nodes = [n for n in nodes if n.layer.name == "FUNCTION"]
-        pr = compute_pagerank(fn_nodes, self._graph)
-        pr_scale = 0.06 if mean_bm25 >= BM25_WEAK_THRESHOLD else 0.12
-        for node in fn_nodes:
+        # PageRank bonus pulled from the per-graph cache (query-independent).
+        pr_scale = (
+            cfg.pagerank_scale_strong
+            if mean_bm25 >= cfg.bm25_weak_threshold
+            else cfg.pagerank_scale_weak
+        )
+        for node in nodes:
+            if node.layer.name != "FUNCTION":
+                continue
             nid = node.node_id
-            scores[nid] = min(1.0, scores[nid] + pr_scale * pr.get(nid, 0.0))
+            scores[nid] = min(
+                1.0,
+                scores[nid] + pr_scale * self._pagerank_full.get(nid, 0.0),
+            )
+
+        # --- Identifier-match bonuses ----------------------------------
+        # These are the main levers for within-file function disambiguation.
+        # Applied as bounded additive bonuses so the [0, 1] range is preserved.
+        if cfg.name_match_scale > 0:
+            nm = compute_name_match(
+                self._query, nodes, self._graph,
+                min_len=cfg.identifier_min_length,
+            )
+            for node in nodes:
+                if node.layer.name != "FUNCTION":
+                    continue
+                nid = node.node_id
+                scores[nid] = min(
+                    1.0,
+                    scores[nid] + cfg.name_match_scale * nm.get(nid, 0.0),
+                )
+
+        if cfg.path_match_scale > 0:
+            pm = compute_path_match(
+                self._query, nodes, min_len=cfg.identifier_min_length + 1,
+            )
+            for node in nodes:
+                nid = node.node_id
+                scores[nid] = min(
+                    1.0,
+                    scores[nid] + cfg.path_match_scale * pm.get(nid, 0.0),
+                )
 
         return scores
 

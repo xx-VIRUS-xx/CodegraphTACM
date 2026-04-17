@@ -22,6 +22,7 @@ from ..graph.model import Layer, LayeredGraph, LNode
 from ..layers.serializers import serialize, serialize_function_for_scoring
 from .intent import classify_intent, LAYER_BUDGETS as _LAYER_BUDGETS
 from .scoring import NodeScorer
+from .config import DEFAULT_CONFIG, SelectorConfig
 
 
 # ---------------------------------------------------------------------------
@@ -113,8 +114,9 @@ def select(
     token_budget: int,
     intent: Optional[str] = None,
     exclude_tests: bool = True,
-    max_overflow_ratio: float = DEFAULT_MAX_OVERFLOW_RATIO,
-    overflow_score_floor: float = DEFAULT_OVERFLOW_SCORE_FLOOR,
+    max_overflow_ratio: float | None = None,
+    overflow_score_floor: float | None = None,
+    config: SelectorConfig = DEFAULT_CONFIG,
 ) -> SelectionResult:
     """Main entry point. Returns selected nodes, with adaptive overflow.
 
@@ -130,9 +132,16 @@ def select(
         token_budget:         Base token budget (hard floor for the base phase).
         intent:               Override intent classification (for testing/ablation).
         exclude_tests:        Skip test nodes (default True).
-        max_overflow_ratio:   Fraction of token_budget available as overflow (default 0.5).
-        overflow_score_floor: Minimum score to enter overflow at all (default 0.25).
+        max_overflow_ratio:   Fraction of token_budget available as overflow.
+                              ``None`` (default) → use ``config.max_overflow_ratio``.
+        overflow_score_floor: Minimum score to enter overflow at all.
+                              ``None`` (default) → use ``config.overflow_score_floor``.
+        config:               Full tuning config; see :class:`SelectorConfig`.
     """
+    if max_overflow_ratio is None:
+        max_overflow_ratio = config.max_overflow_ratio
+    if overflow_score_floor is None:
+        overflow_score_floor = config.overflow_score_floor
     if intent is None:
         intent = classify_intent(query)
 
@@ -147,7 +156,7 @@ def select(
     all_nodes, agent_texts, score_texts = _prepare_serialized_texts(graph, exclude_tests)
 
     # Build one scorer for the whole query — shared across all layers
-    scorer = NodeScorer(graph, query, intent, score_texts)
+    scorer = NodeScorer(graph, query, intent, score_texts, config=config)
 
     # Tracks node_ids selected so far — used for containment bonus.
     # Populated after each layer, read by the next layer down.
@@ -184,7 +193,7 @@ def select(
         # - Strong enough to surface a method over a same-scored stranger
         # - Weak enough that an irrelevant method can't beat a clearly relevant
         #   function from elsewhere (base scores range [0, 1], so 0.15 is ~15%)
-        CONTAINMENT_BONUS = 0.15
+        CONTAINMENT_BONUS = config.containment_bonus
         for node in nodes:
             if node.parent_id and node.parent_id in selected_ids:
                 scores[node.node_id] = min(1.0, scores[node.node_id] + CONTAINMENT_BONUS)
@@ -256,6 +265,7 @@ def _diversity_penalty(
     node: LNode,
     parent_counts: dict[str, int],
     file_counts: dict[str, int],
+    config: SelectorConfig = DEFAULT_CONFIG,
 ) -> float:
     """Return a bounded redundancy penalty for over-clustered selections.
 
@@ -264,21 +274,33 @@ def _diversity_penalty(
       nodes from the same parent/file, additional siblings often become less
       valuable than the best function from a nearby but distinct area.
 
-    Policy:
-      - first 2 children from a parent are free
-      - first 3 nodes from a file are free
+    Policy (all tunable via :class:`SelectorConfig`):
+      - first ``diversity_sibling_free`` + 1 children from a parent are free
+      - first ``diversity_file_free`` + 1 nodes from a file are free
       - penalty grows gently after that, capped so relevance still dominates
     """
     penalty = 0.0
     if node.parent_id:
-        extra_siblings = max(0, parent_counts.get(node.parent_id, 0) - 1)
-        penalty += min(0.12, 0.04 * extra_siblings)
+        extra_siblings = max(
+            0,
+            parent_counts.get(node.parent_id, 0) - config.diversity_sibling_free,
+        )
+        penalty += min(
+            config.diversity_sibling_cap,
+            config.diversity_sibling_step * extra_siblings,
+        )
 
     if node.file_path:
-        extra_file_nodes = max(0, file_counts.get(node.file_path, 0) - 2)
-        penalty += min(0.12, 0.03 * extra_file_nodes)
+        extra_file_nodes = max(
+            0,
+            file_counts.get(node.file_path, 0) - config.diversity_file_free,
+        )
+        penalty += min(
+            config.diversity_file_cap,
+            config.diversity_file_step * extra_file_nodes,
+        )
 
-    return min(0.18, penalty)
+    return min(config.diversity_total_cap, penalty)
 
 
 def select_dynamic(
@@ -287,8 +309,9 @@ def select_dynamic(
     token_budget: int,
     intent: Optional[str] = None,
     exclude_tests: bool = True,
-    max_overflow_ratio: float = DEFAULT_MAX_OVERFLOW_RATIO,
-    overflow_score_floor: float = DEFAULT_OVERFLOW_SCORE_FLOOR,
+    max_overflow_ratio: float | None = None,
+    overflow_score_floor: float | None = None,
+    config: SelectorConfig = DEFAULT_CONFIG,
 ) -> SelectionResult:
     """Cross-layer TACM selector with dynamic budget allocation + overflow.
 
@@ -304,6 +327,10 @@ def select_dynamic(
     This keeps TACM's structural priors while avoiding the rigid layer split
     that excluded too many functions in the budgeted Experiment 03 setting.
     """
+    if max_overflow_ratio is None:
+        max_overflow_ratio = config.max_overflow_ratio
+    if overflow_score_floor is None:
+        overflow_score_floor = config.overflow_score_floor
     if intent is None:
         intent = classify_intent(query)
 
@@ -314,7 +341,7 @@ def select_dynamic(
     file_counts: dict[str, int] = {}
 
     all_nodes, agent_texts, score_texts = _prepare_serialized_texts(graph, exclude_tests)
-    scorer = NodeScorer(graph, query, intent, score_texts)
+    scorer = NodeScorer(graph, query, intent, score_texts, config=config)
 
     by_layer: dict[Layer, list[LNode]] = {
         layer: [
@@ -329,7 +356,7 @@ def select_dynamic(
             base_scores.update(scorer.score_all(nodes))
 
     remaining = token_budget
-    containment_bonus = 0.15
+    containment_bonus = config.containment_bonus
 
     # Seed a tiny amount of structure so the global pass has something to
     # attach to, but do not pre-commit large quotas by layer.
@@ -380,17 +407,27 @@ def select_dynamic(
 
     # Global competition for the remaining budget, then overflow.
     max_overflow = int(token_budget * max_overflow_ratio)
-    remaining_nodes = [n for n in all_nodes if n.node_id not in selected_ids]
+    # Precompute token costs once rather than on every loop iteration.
+    cost_cache: dict[str, int] = {
+        n.node_id: _count_tokens(agent_texts[n.node_id]) for n in all_nodes
+    }
+    # Track candidates as a set of ids rather than a list that is rebuilt
+    # on every iteration — the previous implementation was O(n^2) in the
+    # number of selected nodes.
+    candidate_ids: set[str] = {
+        n.node_id for n in all_nodes if n.node_id not in selected_ids
+    }
+    nodes_by_id: dict[str, LNode] = {n.node_id: n for n in all_nodes}
     in_overflow = False
 
-    while remaining_nodes:
+    while candidate_ids:
         best_node: LNode | None = None
         best_score = -1.0
         best_cost = 0
 
-        for node in remaining_nodes:
-            text = agent_texts[node.node_id]
-            cost = _count_tokens(text)
+        for nid in candidate_ids:
+            node = nodes_by_id[nid]
+            cost = cost_cache[nid]
 
             # Budget check: base phase vs overflow phase
             if remaining > 0:
@@ -402,10 +439,10 @@ def select_dynamic(
                 if overflow_used + cost > max_overflow:
                     continue
 
-            adjusted = base_scores.get(node.node_id, 0.0)
+            adjusted = base_scores.get(nid, 0.0)
             if node.parent_id and node.parent_id in selected_ids:
                 adjusted = min(1.0, adjusted + containment_bonus)
-            adjusted = max(0.0, adjusted - _diversity_penalty(node, parent_counts, file_counts))
+            adjusted = max(0.0, adjusted - _diversity_penalty(node, parent_counts, file_counts, config))
 
             if adjusted > best_score:
                 best_node = node
@@ -441,7 +478,7 @@ def select_dynamic(
         if best_node.file_path:
             file_counts[best_node.file_path] = file_counts.get(best_node.file_path, 0) + 1
         remaining -= best_cost
-        remaining_nodes = [n for n in remaining_nodes if n.node_id != best_node.node_id]
+        candidate_ids.discard(best_node.node_id)
 
     total = sum(n.token_cost for n in selected)
     return SelectionResult(
@@ -451,3 +488,38 @@ def select_dynamic(
         intent=intent,
         layer_counts=layer_counts,
     )
+
+
+# ---------------------------------------------------------------------------
+# Debug / inspection helpers
+# ---------------------------------------------------------------------------
+
+def explain_selection(
+    graph: LayeredGraph,
+    query: str,
+    result: SelectionResult,
+    top_n: int = 10,
+    config: SelectorConfig = DEFAULT_CONFIG,
+) -> list[dict]:
+    """Per-signal breakdown for the top-N selected nodes.
+
+    Returns a list of dicts with ``node_id``, ``name``, ``layer``, ``score``,
+    and the raw per-signal values (``bm25``, ``fan_in``, ``fan_out``,
+    ``complexity``, ``test_cover``, ``weights``). Useful for diagnosing why
+    a specific node did or did not make the cut.
+    """
+    _all, _agent_texts, score_texts = _prepare_serialized_texts(graph, exclude_tests=True)
+    scorer = NodeScorer(graph, query, result.intent, score_texts, config=config)
+
+    out: list[dict] = []
+    for sel in result.nodes[:top_n]:
+        breakdown = scorer.explain(sel.node)
+        out.append({
+            "node_id":   sel.node.node_id,
+            "name":      sel.node.name,
+            "layer":     sel.layer.name,
+            "file":      sel.node.file_path,
+            "score":     round(sel.score, 4),
+            **breakdown,
+        })
+    return out
