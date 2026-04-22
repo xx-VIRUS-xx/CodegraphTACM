@@ -39,6 +39,7 @@ import argparse
 import json
 import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -57,6 +58,31 @@ sys.path.insert(0, str(ROOT))
 # ---------------------------------------------------------------------------
 TOP_K = 5
 TIMEOUT = 120
+SEED = 42          # pinned across runs; controls random / numpy / torch
+BOOTSTRAP_N = 2000 # paired-bootstrap samples for CIs and p-values
+
+
+def _pin_seeds(seed: int = SEED) -> None:
+    """Pin every RNG we can reach so dense retrievers are deterministic.
+
+    Embedding models (MiniLM, CodeSearch) are otherwise run-to-run noisy
+    because of nondeterministic matmul ordering on some BLAS backends.
+    Called once at benchmark start *and* re-called before each dense
+    index build so a seed set by one retriever doesn't leak into another.
+    """
+    random.seed(seed)
+    os.environ.setdefault("PYTHONHASHSEED", str(seed))
+    try:
+        import numpy as np
+        np.random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import torch
+        torch.manual_seed(seed)
+        torch.use_deterministic_algorithms(False)  # too strict for SBERT
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +299,53 @@ def _file_matches_gt(node_file: str, gt_files: list[str]) -> bool:
     return False
 
 
+def _classify_miss(
+    match: dict,
+    gt_fns: list[str],
+    gt_files: list[str],
+    fn_nodes: list,
+    top_k: int,
+) -> str:
+    """Label the retrieval outcome with a single bucket (Gap 4).
+
+    Buckets:
+      hit                  — strict match inside top-K
+      right_file_wrong_fn  — file match inside top-K, no fn match
+      ranked_outside_k     — strict fn match exists but rank > top_k
+      gt_not_in_pool       — GT fn does not appear anywhere in fn_nodes
+                             (e.g. parser skipped it, it lives in a test file,
+                              or the patch touches a non-function line only)
+      no_gt_fn             — no function-level GT could be extracted at all
+                             (only file-level GT available)
+      miss_other           — GT in pool, lenient match somewhere, strict miss
+                             (usually a path-suffix mismatch)
+    """
+    if not gt_fns:
+        return "no_gt_fn"
+    if match["strict_rank"] is not None and match["strict_rank"] <= top_k:
+        return "hit"
+    if match["strict_rank"] is not None:
+        return "ranked_outside_k"
+    # No strict hit anywhere. Is the GT even in the candidate pool?
+    gt_short = {gt.split(".")[-1] for gt in gt_fns}
+    gt_files_norm = [gf.replace("\\", "/") for gf in gt_files]
+    in_pool = False
+    for n in fn_nodes:
+        nfile = (getattr(n, "file_path", "") or "").replace("\\", "/")
+        nid = getattr(n, "node_id", "") or ""
+        nshort = nid.split("::")[-1].split(".")[-1]
+        if nshort not in gt_short:
+            continue
+        if any(nfile.endswith(gf) for gf in gt_files_norm):
+            in_pool = True
+            break
+    if not in_pool:
+        return "gt_not_in_pool"
+    if match["file_rank"] is not None and match["file_rank"] <= top_k:
+        return "right_file_wrong_fn"
+    return "miss_other"
+
+
 def _match_ranked_functions(
     ranked_nodes: list,
     gt_fns: list[str],
@@ -466,8 +539,24 @@ def _get_st_model(model_name: str):
     return _ST_MODEL_CACHE[model_name]
 
 
+# Per-instance embedding index cache. Keyed on (id(fn_nodes), model_name)
+# so the same index is reused across conditions (minilm / hybrid /
+# hybrid-cs / codesearch) within one instance instead of rebuilt 4×.
+# Cleared between instances so stale indexes from the previous repo
+# don't leak in.
+_INDEX_CACHE: dict[tuple[int, str], tuple] = {}
+
+
+def _clear_index_cache() -> None:
+    _INDEX_CACHE.clear()
+
+
 def _build_st_index(nodes, model_name: str) -> tuple | None:
+    cache_key = (id(nodes), model_name)
+    if cache_key in _INDEX_CACHE:
+        return _INDEX_CACHE[cache_key]
     try:
+        _pin_seeds()  # re-pin before every build so order-of-retrievers doesn't matter
         model = _get_st_model(model_name)
         corpus = [
             (n, _read_source(n.file_path or "", n.line_start or 0, n.line_end or 0) or n.name)
@@ -478,7 +567,9 @@ def _build_st_index(nodes, model_name: str) -> tuple | None:
         node_list = [n for n, _ in corpus]
         texts = [t for _, t in corpus]
         vecs = model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
-        return node_list, vecs, model
+        index = (node_list, vecs, model)
+        _INDEX_CACHE[cache_key] = index
+        return index
     except Exception as e:
         print(f"    [embedding index failed: {e}]")
         return None
@@ -630,11 +721,12 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
             return _rrf_rank(bm25_ranked, dense_ranked)
         return bm25_ranked
 
-    if condition == "tacm":
+    if condition in ("tacm", "tacm-ppr"):
         from tacm_v2.graph.model import Layer
         from tacm_v2.layers.serializers import serialize, serialize_function_for_scoring
         from tacm_v2.selector.intent import classify_intent
         from tacm_v2.selector.scoring import NodeScorer
+        from tacm_v2.selector.config import SelectorConfig, DEFAULT_CONFIG
         intent = classify_intent(query)
         all_nodes = [n for n in graph.nodes.values() if not n.is_test]
         # Use the same (agent_text, scoring_text) split as selector.select() —
@@ -649,7 +741,15 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
             )
             for n in all_nodes
         }
-        scorer = NodeScorer(graph, query, intent, score_texts)
+        # tacm-ppr flips on Personalized PageRank — BM25 top-K seed the teleport
+        # vector so the structural signal becomes query-aware. Everything else
+        # is identical to the `tacm` path.
+        cfg = (
+            SelectorConfig(ppr_enabled=True)
+            if condition == "tacm-ppr"
+            else DEFAULT_CONFIG
+        )
+        scorer = NodeScorer(graph, query, intent, score_texts, config=cfg)
         scores = scorer.score_all(fn_nodes)
         return sorted(fn_nodes, key=lambda n: -scores[n.node_id])
 
@@ -1108,6 +1208,8 @@ def _run_condition(
         file_hit=False,
         file_rank=None,
         top_k_tokens=0,
+        retrieval_ms=None,
+        miss_bucket=None,
         patch_applied=False,
         tests_passed=False,
         solved=False,
@@ -1115,7 +1217,9 @@ def _run_condition(
     )
 
     try:
+        t0 = time.perf_counter()
         ranked = _retrieve(condition, instance["query"], graph, fn_nodes)
+        result["retrieval_ms"] = (time.perf_counter() - t0) * 1000.0
     except Exception as e:
         print(f"    [{condition}] retrieval failed: {e}")
         result["skip_reason"] = "retrieval_failed"
@@ -1133,6 +1237,10 @@ def _run_condition(
     )
     result["file_hit"] = (
         match["file_rank"] is not None and match["file_rank"] <= top_k
+    )
+    result["miss_bucket"] = _classify_miss(
+        match=match, gt_fns=gt_fns, gt_files=gt_files,
+        fn_nodes=fn_nodes, top_k=top_k,
     )
 
     # Generate diagnostic trace for TACM conditions
@@ -1263,6 +1371,101 @@ def run_instance(
 # Benchmark runner + summary
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Statistics — paired bootstrap for MRR/Hit/Solved
+# ---------------------------------------------------------------------------
+
+def _bootstrap_ci(values: list[float], n_boot: int = BOOTSTRAP_N,
+                  alpha: float = 0.05) -> tuple[float, float]:
+    """Two-sided percentile bootstrap CI on the mean of ``values``."""
+    if not values:
+        return (0.0, 0.0)
+    rng = random.Random(SEED)
+    n = len(values)
+    samples = []
+    for _ in range(n_boot):
+        s = sum(values[rng.randrange(n)] for _ in range(n)) / n
+        samples.append(s)
+    samples.sort()
+    lo = samples[int((alpha / 2) * n_boot)]
+    hi = samples[int((1 - alpha / 2) * n_boot)]
+    return (lo, hi)
+
+
+def _paired_bootstrap_p(a: list[float], b: list[float],
+                        n_boot: int = BOOTSTRAP_N) -> float:
+    """One-sided p-value that ``a`` beats ``b`` on the paired mean.
+
+    ``a`` and ``b`` are aligned per-instance (same index = same task).
+    H0: mean(a) <= mean(b). Lower p means stronger evidence that a > b.
+    Returns 1.0 when lengths don't match (misaligned pairs → treat as null).
+    """
+    if len(a) != len(b) or not a:
+        return 1.0
+    rng = random.Random(SEED)
+    diffs = [a[i] - b[i] for i in range(len(a))]
+    observed = sum(diffs) / len(diffs)
+    if observed <= 0:
+        # Not even directionally better — no need to bootstrap.
+        return 1.0
+    # Resample diffs under H0 (center at zero) and count how often the
+    # resampled mean equals or exceeds the observed lift.
+    centered = [d - observed for d in diffs]
+    n = len(centered)
+    hits = 0
+    for _ in range(n_boot):
+        s = sum(centered[rng.randrange(n)] for _ in range(n)) / n
+        if s >= observed:
+            hits += 1
+    return hits / n_boot
+
+
+def _paired_vectors(
+    all_results: list[dict],
+    cond_a: str,
+    cond_b: str,
+    metric: str,
+) -> tuple[list[float], list[float]]:
+    """Build per-instance paired vectors for two conditions over a metric.
+
+    Only instance_ids where BOTH conditions produced a non-skip result are
+    included — this guarantees the paired bootstrap sees aligned pairs.
+    """
+    def _metric(r: dict) -> float:
+        if metric == "mrr":
+            rnk = r.get("fn_strict_rank")
+            return (1.0 / rnk) if rnk else 0.0
+        if metric == "hit":
+            return 1.0 if r.get("fn_hit") else 0.0
+        if metric == "solved":
+            return 1.0 if r.get("solved") else 0.0
+        raise ValueError(metric)
+
+    by_iid: dict[str, dict[str, dict]] = {}
+    for r in all_results:
+        iid = r.get("instance_id", "?")
+        by_iid.setdefault(iid, {})[r["condition"]] = r
+
+    a, b = [], []
+    for iid, conds in by_iid.items():
+        ra, rb = conds.get(cond_a), conds.get(cond_b)
+        if not ra or not rb:
+            continue
+        if ra.get("skip_reason") or rb.get("skip_reason"):
+            continue
+        a.append(_metric(ra))
+        b.append(_metric(rb))
+    return a, b
+
+
+def _results_to_path(dataset_path: str) -> Path:
+    stem = Path(dataset_path).stem
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    out_dir = ROOT / "agent_results"
+    out_dir.mkdir(exist_ok=True)
+    return out_dir / f"zero_cost_{stem}_{ts}.json"
+
+
 def run_benchmark(
     dataset_path: str,
     conditions: list[str],
@@ -1272,6 +1475,8 @@ def run_benchmark(
     top_k: int = TOP_K,
     trace: bool = False,
 ) -> None:
+    _pin_seeds()
+
     with open(dataset_path) as f:
         dataset = json.load(f)
 
@@ -1284,16 +1489,43 @@ def run_benchmark(
 
     all_results: list[dict] = []
     for instance in dataset:
+        _clear_index_cache()  # fresh cache per instance
         results = run_instance(instance, conditions, no_exec, top_k, trace=trace)
         all_results.extend(results)
 
+    # Persist raw results for offline reanalysis
+    out_path = _results_to_path(dataset_path)
+    try:
+        with open(out_path, "w") as f:
+            json.dump({
+                "seed": SEED,
+                "top_k": top_k,
+                "dataset": dataset_path,
+                "conditions": conditions,
+                "no_exec": no_exec,
+                "python_only": python_only,
+                "results": all_results,
+            }, f, indent=2, default=str)
+        print(f"\nRaw results → {out_path}")
+    except Exception as e:
+        print(f"\n[warn] could not write results JSON: {e}")
+
+    # Baselines for the p-value columns
+    ref_bm25 = "bm25" if "bm25" in conditions else None
+    ref_tacm = "tacm" if "tacm" in conditions else None
+
     # ---- Per-condition summary ----
-    print(f"\n{'='*70}")
-    print(f"Dataset : {dataset_path}  |  Mode: {'retrieval-only' if no_exec else 'full solve'}")
-    print(f"Top-K   : {top_k}")
-    print(f"{'='*70}")
-    print(f"{'Condition':<16} {'N':>4} {'Skip':>5}  {'Fn-Hit%':>7} {'Fn-MRR':>7} {'File%':>6} {'AvgTok':>7}" + ("  Solved" if not no_exec else ""))
-    print(f"{'-'*70}")
+    print(f"\n{'='*108}")
+    print(f"Dataset : {dataset_path}  |  Mode: {'retrieval-only' if no_exec else 'full solve'}  |  Seed: {SEED}")
+    print(f"Top-K   : {top_k}  |  Bootstrap: {BOOTSTRAP_N}")
+    print(f"{'='*108}")
+    header = (f"{'Condition':<14} {'N':>3} {'Skip':>4}  "
+              f"{'Hit%':>5} {'MRR':>6} {'MRR 95% CI':>17} "
+              f"{'p>bm25':>7} {'p>tacm':>7} {'p50ms':>6} {'File%':>5} {'Tok':>5}")
+    if not no_exec:
+        header += f" {'Solve%':>6}"
+    print(header)
+    print("-" * len(header))
 
     for cond in conditions:
         rows = [r for r in all_results if r["condition"] == cond]
@@ -1301,39 +1533,82 @@ def run_benchmark(
         skipped = len(rows) - len(valid)
         n = len(valid)
 
-        # Function-level metrics (PRIMARY)
-        fn_hits = sum(1 for r in valid if r.get("fn_hit"))
-        fn_hit_pct = f"{fn_hits/n:.1%}" if n else "—"
-
-        # MRR over strict function rank
-        fn_rr = [
+        # PRIMARY: MRR with bootstrap CI
+        mrr_vec = [
             (1.0 / r["fn_strict_rank"]) if r.get("fn_strict_rank") else 0.0
             for r in valid
         ]
-        fn_mrr = f"{sum(fn_rr)/len(fn_rr):.4f}" if fn_rr else "—"
+        mrr = sum(mrr_vec) / n if n else 0.0
+        ci_lo, ci_hi = _bootstrap_ci(mrr_vec)
 
-        # File-level (secondary reference)
-        file_hits = sum(1 for r in valid if r.get("file_hit"))
-        file_pct = f"{file_hits/n:.0%}" if n else "—"
+        # Hit%
+        hit_pct = sum(1 for r in valid if r.get("fn_hit")) / n if n else 0.0
 
-        # Token efficiency
-        tok_vals = [r.get("top_k_tokens", 0) for r in valid]
-        avg_tok = f"{sum(tok_vals)/len(tok_vals):.0f}" if tok_vals else "—"
+        # Paired p-values on MRR vs the baselines
+        if ref_bm25 and cond != ref_bm25:
+            a, b = _paired_vectors(all_results, cond, ref_bm25, "mrr")
+            p_bm25 = _paired_bootstrap_p(a, b)
+            p_bm25_str = f"{p_bm25:.3f}"
+        else:
+            p_bm25_str = "—"
 
-        line = f"{cond:<16} {n:>4} {skipped:>5}  {fn_hit_pct:>7} {fn_mrr:>7} {file_pct:>6} {avg_tok:>7}"
+        if ref_tacm and cond != ref_tacm:
+            a, b = _paired_vectors(all_results, cond, ref_tacm, "mrr")
+            p_tacm = _paired_bootstrap_p(a, b)
+            p_tacm_str = f"{p_tacm:.3f}"
+        else:
+            p_tacm_str = "—"
+
+        # Latency — median is more honest than mean for one-shot retrievers
+        lat = sorted(r["retrieval_ms"] for r in valid if r.get("retrieval_ms") is not None)
+        p50 = lat[len(lat) // 2] if lat else 0.0
+
+        # File-level + tokens (legacy reference)
+        file_pct = sum(1 for r in valid if r.get("file_hit")) / n if n else 0.0
+        tok = sum(r.get("top_k_tokens", 0) for r in valid) / n if n else 0.0
+
+        line = (f"{cond:<14} {n:>3} {skipped:>4}  "
+                f"{hit_pct:>4.0%} {mrr:>6.4f} [{ci_lo:.3f},{ci_hi:.3f}] "
+                f"{p_bm25_str:>7} {p_tacm_str:>7} "
+                f"{p50:>5.0f}m {file_pct:>4.0%} {tok:>5.0f}")
         if not no_exec:
-            solved = sum(1 for r in valid if r.get("solved"))
-            line += f"  {solved/n:.1%}" if n else "  —"
+            solved = sum(1 for r in valid if r.get("solved")) / n if n else 0.0
+            line += f" {solved:>5.0%}"
         print(line)
 
-    print(f"{'='*70}")
+    print("-" * len(header))
+
+    # ---- Failure taxonomy per condition (Gap 4) ----
+    print("\nMiss taxonomy (% of valid rows per condition):")
+    buckets = ["hit", "right_file_wrong_fn", "ranked_outside_k",
+               "gt_not_in_pool", "no_gt_fn", "miss_other"]
+    head = f"{'Condition':<14} " + " ".join(f"{b:>20}" for b in buckets)
+    print(head)
+    print("-" * len(head))
+    for cond in conditions:
+        valid = [r for r in all_results
+                 if r["condition"] == cond and r.get("skip_reason") is None]
+        total = len(valid) or 1
+        counts = {b: 0 for b in buckets}
+        for r in valid:
+            counts[r.get("miss_bucket") or "miss_other"] = counts.get(
+                r.get("miss_bucket") or "miss_other", 0) + 1
+        cells = " ".join(f"{counts[b] / total:>19.0%} " for b in buckets)
+        print(f"{cond:<14} {cells}")
+
+    print(f"\n{'='*108}")
+    print("Stats legend:")
+    print("  MRR 95% CI : percentile bootstrap on per-instance reciprocal ranks")
+    print("  p>bm25     : paired-bootstrap one-sided p-value that this retriever beats BM25 on MRR")
+    print("  p>tacm     : same, but against TACM (only meaningful for TACM variants)")
+    print("  p50ms      : median retrieval latency (graph build excluded, pure ranking cost)")
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
-ALL_CONDITIONS = ["bm25", "minilm", "codesearch", "hybrid", "hybrid-cs", "tacm", "tacm-rerank"]
+ALL_CONDITIONS = ["bm25", "minilm", "codesearch", "hybrid", "hybrid-cs", "tacm", "tacm-ppr", "tacm-rerank"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Zero-cost retrieval + solve benchmark")

@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 from ..graph.model import EdgeKind
 from .intent import QueryIntent, INTENT_WEIGHTS as _WEIGHTS
 from .config import DEFAULT_CONFIG, SelectorConfig
-from .cache import get_scorer_cache
+from .cache import get_scorer_cache, personalized_pagerank
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +508,7 @@ class NodeScorer:
         cache = get_scorer_cache(graph, config)
         self._name_counts = cache.name_counts
         self._pagerank_full = cache.pagerank
+        self._ppr_index = cache.ppr_index
 
     def score_all(self, nodes: list["LNode"]) -> dict[str, float]:
         """Compute combined intent-weighted score for each node.
@@ -582,19 +583,29 @@ class NodeScorer:
             nid = node.node_id
             scores[nid] = min(1.0, scores[nid] + nbr_scale * neighborhood.get(nid, 0.0))
 
-        # PageRank bonus pulled from the per-graph cache (query-independent).
-        pr_scale = (
-            cfg.pagerank_scale_strong
-            if mean_bm25 >= cfg.bm25_weak_threshold
-            else cfg.pagerank_scale_weak
-        )
+        # Structural PageRank bonus — PPR when enabled (query-aware),
+        # otherwise the cached vanilla PageRank (query-independent).
+        if cfg.ppr_enabled:
+            pr_vec = self._compute_ppr(nodes, bm25)
+            pr_scale = (
+                cfg.ppr_scale_strong
+                if mean_bm25 >= cfg.bm25_weak_threshold
+                else cfg.ppr_scale_weak
+            )
+        else:
+            pr_vec = self._pagerank_full
+            pr_scale = (
+                cfg.pagerank_scale_strong
+                if mean_bm25 >= cfg.bm25_weak_threshold
+                else cfg.pagerank_scale_weak
+            )
         for node in nodes:
             if node.layer.name != "FUNCTION":
                 continue
             nid = node.node_id
             scores[nid] = min(
                 1.0,
-                scores[nid] + pr_scale * self._pagerank_full.get(nid, 0.0),
+                scores[nid] + pr_scale * pr_vec.get(nid, 0.0),
             )
 
         # --- Identifier-match bonuses ----------------------------------
@@ -626,6 +637,38 @@ class NodeScorer:
                 )
 
         return scores
+
+    def _compute_ppr(
+        self,
+        nodes: list["LNode"],
+        bm25: dict[str, float],
+    ) -> dict[str, float]:
+        """Run Personalized PageRank seeded by the current query's BM25 hits.
+
+        Seeds are the top-K FUNCTION nodes by BM25 score, weighted by that
+        score (higher BM25 → more teleport mass). Non-function nodes can't
+        seed — PPR runs on the function-layer CALLS graph.
+
+        If no non-zero seed remains (e.g. BM25 returned nothing for this
+        query), PPR degenerates to vanilla PageRank via the uniform-teleport
+        fallback inside :func:`personalized_pagerank`.
+        """
+        cfg = self._config
+        # Rank FUNCTION nodes by BM25 and keep the top-K as seeds.
+        fn_bm25 = [
+            (nid, bm25.get(nid, 0.0))
+            for nid in (n.node_id for n in nodes if n.layer.name == "FUNCTION")
+        ]
+        fn_bm25.sort(key=lambda kv: -kv[1])
+        seeds = {nid: s for nid, s in fn_bm25[: cfg.ppr_seed_k] if s > 0}
+
+        return personalized_pagerank(
+            self._ppr_index,
+            seed_weights=seeds,
+            alpha=cfg.ppr_alpha,
+            max_iter=cfg.ppr_max_iter,
+            tol=cfg.ppr_tol,
+        )
 
     def explain(self, node: "LNode") -> dict[str, float]:
         """Return per-signal breakdown for a single node (for debugging)."""

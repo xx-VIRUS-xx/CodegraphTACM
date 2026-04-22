@@ -44,6 +44,18 @@ class SelectorConfig:
     pagerank_max_iter:      int   = 50
     pagerank_tol:           float = 0.0       # 0.0 → always run max_iter (reproduces legacy)
 
+    # --- Personalized PageRank (query-dependent) ---
+    # When enabled, runs PPR per query with BM25 top-K as seeds. Replaces
+    # the cached vanilla PageRank bonus as the structural signal channel.
+    # Off by default to keep regression guards stable; turn on to measure lift.
+    ppr_enabled:            bool  = False
+    ppr_seed_k:             int   = 20        # how many BM25 top hits seed teleport
+    ppr_alpha:              float = 0.85
+    ppr_max_iter:           int   = 20        # 20 is ample with seeded init
+    ppr_tol:                float = 1e-4
+    ppr_scale_strong:       float = 0.12      # dominant structural signal when BM25 is strong
+    ppr_scale_weak:         float = 0.20      # lean harder on structure when BM25 is weak
+
     # --- Adaptive BM25 weighting ---
     bm25_weak_threshold:    float = 0.01      # mean normalised BM25 below this → weak
     bm25_shed_fraction:     float = 0.5       # fraction of w_bm25 redistributed
