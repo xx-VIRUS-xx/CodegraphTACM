@@ -745,9 +745,9 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
         # vector so the structural signal becomes query-aware. Everything else
         # is identical to the `tacm` path.
         cfg = (
-            SelectorConfig(ppr_enabled=True)
+            SelectorConfig(ppr_enabled=True, identifier_expansion_enabled=True)
             if condition == "tacm-ppr"
-            else DEFAULT_CONFIG
+            else SelectorConfig(identifier_expansion_enabled=True)
         )
         scorer = NodeScorer(graph, query, intent, score_texts, config=cfg)
         scores = scorer.score_all(fn_nodes)

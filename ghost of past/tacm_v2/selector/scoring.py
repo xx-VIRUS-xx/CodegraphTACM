@@ -100,6 +100,43 @@ def _expand_query(
     return query + " " + extra
 
 
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}")
+_QUOTED_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+
+
+def _extract_query_identifiers(query: str) -> set[str]:
+    """Extract code-like identifier tokens from a natural-language query.
+
+    Pulls (a) backtick/quoted tokens verbatim, (b) any token that is
+    CamelCase, snake_case, or dotted.foo.bar, and (c) their piece-wise
+    identifier splits. Everything is lowercased. Used to seed aggressive
+    BM25 variants and the identifier-exact-match side signal.
+    """
+    out: set[str] = set()
+    for m in _QUOTED_RE.finditer(query):
+        for g in m.groups():
+            if g:
+                out.add(g.lower())
+                for part in re.split(r"[.\s]+", g):
+                    if part:
+                        out.add(part.lower())
+                        out.update(_split_identifier(part))
+    for tok in _IDENT_RE.findall(query):
+        has_upper = any(c.isupper() for c in tok[1:])
+        has_under = "_" in tok
+        if not (has_upper or has_under):
+            continue
+        out.add(tok.lower())
+        out.update(_split_identifier(tok))
+    # Also pick up dotted paths like requests.auth.get_headers
+    for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]+)+", query):
+        for part in tok.split("."):
+            if part:
+                out.add(part.lower())
+                out.update(_split_identifier(part))
+    return {t for t in out if len(t) >= 3}
+
+
 def _cascading_bm25(
     query: str,
     nodes: list["LNode"],
@@ -108,6 +145,7 @@ def _cascading_bm25(
     k1: float = 1.5,
     b: float = 0.75,
     expansion_cap: int = 12,
+    identifier_expansion_enabled: bool = False,
 ) -> dict[str, float]:
     """Run BM25 over three query variants and return per-node maximum.
 
@@ -115,6 +153,8 @@ def _cascading_bm25(
       1. Raw query
       2. camelCase/snake_case split (GetNewCommand → get new command)
       3. Structurally expanded query (class name → member function names)
+      4. (Experiment 06) Aggressive identifier-token concatenation, when
+         ``identifier_expansion_enabled`` is set.
 
     Taking the max rather than averaging ensures a strong hit on any variant
     is not diluted by weak hits on others.
@@ -125,7 +165,18 @@ def _cascading_bm25(
     split = re.sub(r"([A-Z])", r" \1", re.sub(r"_", " ", query)).lower()
     expanded = _expand_query(query, graph, expansion_cap=expansion_cap)
 
-    variants = list({query, split, expanded})  # deduplicate
+    variants = [query, split, expanded]
+    if identifier_expansion_enabled:
+        idents = _extract_query_identifiers(query)
+        if idents:
+            # Feed the raw identifiers (CamelCase intact) and their splits.
+            # Keeping both forms means BM25 hits both `WrappedRequest` in
+            # corpus text and `wrapped request` in split corpora.
+            ident_blob = " ".join(idents)
+            variants.append(ident_blob)
+            variants.append(query + " " + ident_blob)
+
+    variants = list(dict.fromkeys(variants))  # stable-dedup
     all_scores = [compute_bm25(q, nodes, texts, k1, b) for q in variants]
 
     return {
@@ -440,6 +491,49 @@ def compute_name_match(
     return raw
 
 
+def compute_identifier_exact(
+    query: str,
+    nodes: list["LNode"],
+    graph: "LayeredGraph",
+) -> dict[str, float]:
+    """Fraction of *query-extracted identifier tokens* that appear in the
+    FUNCTION node's name/qualified-name/parent-class token set.
+
+    Unlike :func:`compute_name_match`, which tokenises the whole query
+    (including natural-language words), this signal only ever considers
+    code-like tokens pulled from the query by :func:`_extract_query_identifiers`.
+    That kills the "digest" false-positive on a noun-heavy query while
+    strongly rewarding true references like ``WrappedRequest`` or
+    ``get_headers``.
+
+    Returns values in ``[0, 1]``; non-FUNCTION nodes get 0.
+    """
+    q_idents = _extract_query_identifiers(query)
+    if not q_idents:
+        return {n.node_id: 0.0 for n in nodes}
+
+    raw: dict[str, float] = {}
+    for node in nodes:
+        if node.layer.name != "FUNCTION":
+            raw[node.node_id] = 0.0
+            continue
+        tokens: set[str] = set(_split_identifier(node.name or ""))
+        # Also match against intact identifier form (e.g. "WrappedRequest").
+        if node.name:
+            tokens.add(node.name.lower())
+        parent = graph.nodes.get(node.parent_id) if node.parent_id else None
+        if parent is not None and parent.name:
+            tokens.add(parent.name.lower())
+            tokens.update(_split_identifier(parent.name))
+        qname = getattr(node, "qualified_name", None)
+        if qname:
+            tokens.add(qname.lower())
+            tokens.update(_split_identifier(qname))
+        hits = sum(1 for q in q_idents if q in tokens)
+        raw[node.node_id] = hits / len(q_idents)
+    return raw
+
+
 def compute_path_match(
     query: str,
     nodes: list["LNode"],
@@ -534,6 +628,7 @@ class NodeScorer:
             bm25 = _cascading_bm25(
                 self._query, nodes, self._texts, self._graph,
                 expansion_cap=cfg.cascading_expansion_cap,
+                identifier_expansion_enabled=cfg.identifier_expansion_enabled,
             )
         else:
             bm25 = compute_bm25(self._query, nodes, self._texts)
@@ -586,12 +681,13 @@ class NodeScorer:
         # Structural PageRank bonus — PPR when enabled (query-aware),
         # otherwise the cached vanilla PageRank (query-independent).
         if cfg.ppr_enabled:
-            pr_vec = self._compute_ppr(nodes, bm25)
+            pr_vec, density_factor = self._compute_ppr(nodes, bm25)
             pr_scale = (
                 cfg.ppr_scale_strong
                 if mean_bm25 >= cfg.bm25_weak_threshold
                 else cfg.ppr_scale_weak
             )
+            pr_scale *= density_factor
         else:
             pr_vec = self._pagerank_full
             pr_scale = (
@@ -636,22 +732,38 @@ class NodeScorer:
                     scores[nid] + cfg.path_match_scale * pm.get(nid, 0.0),
                 )
 
+        # --- Identifier-exact-match bonus (Experiment 06) ---------------
+        # Operates only on code-like tokens extracted from the query,
+        # rewarding FUNCTION nodes that actually carry that identifier.
+        if cfg.identifier_expansion_enabled and cfg.identifier_exact_scale > 0:
+            ie = compute_identifier_exact(self._query, nodes, self._graph)
+            for node in nodes:
+                if node.layer.name != "FUNCTION":
+                    continue
+                nid = node.node_id
+                scores[nid] = min(
+                    1.0,
+                    scores[nid] + cfg.identifier_exact_scale * ie.get(nid, 0.0),
+                )
+
         return scores
 
     def _compute_ppr(
         self,
         nodes: list["LNode"],
         bm25: dict[str, float],
-    ) -> dict[str, float]:
+    ) -> tuple[dict[str, float], float]:
         """Run Personalized PageRank seeded by the current query's BM25 hits.
 
         Seeds are the top-K FUNCTION nodes by BM25 score, weighted by that
         score (higher BM25 → more teleport mass). Non-function nodes can't
         seed — PPR runs on the function-layer CALLS graph.
 
-        If no non-zero seed remains (e.g. BM25 returned nothing for this
-        query), PPR degenerates to vanilla PageRank via the uniform-teleport
-        fallback inside :func:`personalized_pagerank`.
+        Returns ``(pr_vec, density_factor)``. ``density_factor ∈ [min, 1.0]``
+        is a multiplier the caller applies on top of the configured PPR scale,
+        computed from the average CALLS out-degree of the seed set. When
+        seeds have no neighborhood to propagate through (shallow-library
+        queries), PPR reduces to a noisier BM25 — so we damp its contribution.
         """
         cfg = self._config
         # Rank FUNCTION nodes by BM25 and keep the top-K as seeds.
@@ -662,13 +774,34 @@ class NodeScorer:
         fn_bm25.sort(key=lambda kv: -kv[1])
         seeds = {nid: s for nid, s in fn_bm25[: cfg.ppr_seed_k] if s > 0}
 
-        return personalized_pagerank(
+        pr_vec = personalized_pagerank(
             self._ppr_index,
             seed_weights=seeds,
             alpha=cfg.ppr_alpha,
             max_iter=cfg.ppr_max_iter,
             tol=cfg.ppr_tol,
         )
+
+        density_factor = 1.0
+        if cfg.ppr_density_enabled and seeds:
+            idx_of = self._ppr_index.index_of
+            out_links = self._ppr_index.out_links
+            degrees = [
+                len(out_links[idx_of[nid]])
+                for nid in seeds
+                if nid in idx_of
+            ]
+            if degrees:
+                avg_deg = sum(degrees) / len(degrees)
+                # Linear ramp from min_scale at deg=0 → 1.0 at saturation.
+                sat = max(1e-9, cfg.ppr_density_saturation)
+                ratio = min(1.0, avg_deg / sat)
+                density_factor = (
+                    cfg.ppr_density_min_scale
+                    + (1.0 - cfg.ppr_density_min_scale) * ratio
+                )
+
+        return pr_vec, density_factor
 
     def explain(self, node: "LNode") -> dict[str, float]:
         """Return per-signal breakdown for a single node (for debugging)."""
