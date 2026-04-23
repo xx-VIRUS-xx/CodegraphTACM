@@ -744,10 +744,20 @@ def _retrieve(condition: str, query: str, graph, fn_nodes: list) -> list:
         # tacm-ppr flips on Personalized PageRank — BM25 top-K seed the teleport
         # vector so the structural signal becomes query-aware. Everything else
         # is identical to the `tacm` path.
+        import os as _os
+        _scale = float(_os.environ.get("TACM_IDENT_SCALE", "0.25"))
+        _enabled = _scale > 0
         cfg = (
-            SelectorConfig(ppr_enabled=True, identifier_expansion_enabled=True)
+            SelectorConfig(
+                ppr_enabled=True,
+                identifier_expansion_enabled=_enabled,
+                identifier_exact_scale=_scale,
+            )
             if condition == "tacm-ppr"
-            else SelectorConfig(identifier_expansion_enabled=True)
+            else SelectorConfig(
+                identifier_expansion_enabled=_enabled,
+                identifier_exact_scale=_scale,
+            )
         )
         scorer = NodeScorer(graph, query, intent, score_texts, config=cfg)
         scores = scorer.score_all(fn_nodes)

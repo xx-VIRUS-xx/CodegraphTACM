@@ -1,116 +1,108 @@
-# EXPERIMENT_06 RESULTS — Query-side identifier expansion lifts TACM to parity-plus with Hybrid on MRR, but tilts the ranking in non-uniform ways
+# EXPERIMENT_06 RESULTS — Query-side identifier expansion: no Pareto win across a full scale sweep
 
-**Date:** 2026-04-22
-**Status:** Complete (n=47 paired Python instances; `tacm` and `tacm-ppr` rerun with identifier expansion; `bm25` and `hybrid` inherited from Exp 05)
+**Date:** 2026-04-22 (initial) / 2026-04-23 (scale sweep added)
+**Status:** Complete (n=47 paired Python instances; default-scale 0.25 run + full sweep over `identifier_exact_scale` ∈ {0.05, 0.10, 0.15, 0.20, 0.25} at `--top-k 5`; `bm25`/`hybrid` re-benchmarked as reference and match Exp 05 exactly)
 **Dataset:** SWE-bench Lite + Multilingual Python-only (same 47 instances as Exp 05)
-**Raw results:** [`agent_results/zero_cost_executable_benchmark_20260422_143421.json`](../../agent_results/zero_cost_executable_benchmark_20260422_143421.json)
-**Baseline (Exp 05):** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+**Raw results (k=5, paired with Exp 05):** [`agent_results/zero_cost_executable_benchmark_20260422_210007.json`](../../agent_results/zero_cost_executable_benchmark_20260422_210007.json)
+**Baseline (Exp 05, k=5):** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+
+> **Note on an earlier k=20 run.** An earlier version of this doc reported MRR 0.215 for TACM-PPR based on a run at `--top-k 20` ([`zero_cost_executable_benchmark_20260422_143421.json`](../../agent_results/zero_cost_executable_benchmark_20260422_143421.json)). That run packed a deeper candidate tail and inflated Hit@10/File%/Tok numbers that were not apples-to-apples with Exp 05's k=5 budget. The table below is the corrected paired comparison; the k=20 file is preserved for reference only.
 
 ---
 
-## Primary results — SWE-bench Lite + Multilingual (n=47, Python)
+## Primary results — SWE-bench Lite + Multilingual (n=47, Python, k=5 paired)
 
-**Table 1: Retrieval metrics with 95% CIs on MRR (percentile bootstrap, 5000 resamples)**
+**Table 1: Retrieval metrics with 95% CIs on MRR (percentile bootstrap, 5000 resamples, seed=7)**
 
 ```
-Condition            MRR    95% CI            Hit@1  Hit@5  Hit@10  File%   Tok    p50ms
------------------------------------------------------------------------------------------
-tacm     (Exp 06)   0.199  [0.112, 0.296]     10.6%  31.9%  40.4%   78.7%  17781   3549
-tacm-ppr (Exp 06)   0.215  [0.122, 0.316]     12.8%  31.9%  42.6%   76.6%  15943   3544
-hybrid   (Exp 05)   0.192  [0.096, 0.298]     14.9%  27.7%  27.7%   59.6%   2673  25085
-bm25     (Exp 05)   0.148  [0.070, 0.239]      8.5%  27.7%  27.7%   59.6%   3271    694
-tacm-ppr (Exp 05)   0.198  [0.110, 0.297]     10.6%  36.2%  36.2%   59.6%   5032   2844
-tacm     (Exp 05)   0.165  [0.089, 0.253]      6.4%  34.0%  34.0%   53.2%   5118   3036
+Condition            MRR    95% CI            Hit@1  Hit@5  File%   Tok   p50ms
+-------------------------------------------------------------------------------
+tacm-ppr (Exp 05)   0.198  [0.110, 0.297]     10.6%  36.2%  59.6%  5032   2844
+tacm-ppr (Exp 06)   0.189  [0.094, 0.293]     12.8%  29.8%  59.6%  4805   3049
+hybrid   (Exp 05)   0.192  [0.096, 0.298]     14.9%  27.7%  59.6%  2673  25085
+tacm     (Exp 06)   0.172  [0.082, 0.271]     10.6%  27.7%  59.6%  4782   2946
+tacm     (Exp 05)   0.165  [0.089, 0.253]      6.4%  34.0%  53.2%  5118   3036
+bm25     (Exp 05)   0.148  [0.070, 0.239]      8.5%  27.7%  59.6%  3271    694
 ```
 
 **Statistical significance (paired bootstrap, one-sided, 5000 resamples, seed=42):**
 
 | Comparison | Δ MRR | p-value |
 |---|---|---|
-| tacm (Exp 06) > tacm (Exp 05) | +0.033 | **0.027** |
-| tacm (Exp 06) > bm25 (Exp 05) | +0.051 | **0.024** |
-| tacm-ppr (Exp 06) > bm25 (Exp 05) | +0.067 | **0.015** |
-| tacm-ppr (Exp 06) > tacm-ppr (Exp 05) | +0.017 | 0.200 |
-| tacm-ppr (Exp 06) > hybrid (Exp 05) | +0.023 | 0.291 |
+| tacm (Exp 06) > tacm (Exp 05) | **+0.006** | 0.419 |
+| tacm-ppr (Exp 06) > tacm-ppr (Exp 05) | **−0.009** | 0.656 |
+| tacm-ppr (Exp 06) > hybrid (Exp 05) | −0.003 | 0.510 |
+| tacm-ppr (Exp 06) > bm25 (Exp 05) | +0.041 | 0.103 |
+| tacm (Exp 06) > bm25 (Exp 05) | +0.024 | 0.212 |
+| tacm-ppr (Exp 06) > tacm (Exp 06) | +0.018 | 0.092 |
 
-**Headline:** Identifier expansion moves **tacm** from MRR 0.165 → **0.199** (+20%, p=0.027) and **tacm-ppr** from 0.198 → **0.215** (+9%, within noise). Both now sit **above Exp 05's Hybrid** (0.192) on MRR — a pure-algo, zero-ML configuration that crosses the Hybrid bar on the aggregate metric.
+**Headline:** At the correctly-paired `k=5` budget, identifier expansion **does not produce a statistically significant MRR lift**. TACM moves +0.006 (p=0.42, within noise). TACM-PPR moves **−0.009** (worse). The intervention is **not the pure-algo win** the earlier k=20 draft suggested.
 
-**But the wins are not free.** The per-instance head-to-head (tacm-ppr Exp 05 → Exp 06) is **7 helped, 5 hurt, 35 tied** — some of the hurts are on instances TACM-PPR had cleanly landed at ranks 2–5 in Exp 05 and slipped by 1–3 ranks here. See Finding 4 below.
-
----
-
-## Per-repo breakdown — where expansion bites
-
-Per-repo MRR, columns: `t5 = tacm Exp 05 MRR`, `p5 = tacm-ppr Exp 05`, `t6/p6 = Exp 06`. `Δppr = p6 − p5`.
-
-```
-repo                      N   bm25    hyb     t5     p5     t6     p6     Δppr
---------------------------------------------------------------------------------
-pydata/xarray             4  0.250  0.250  0.167  0.146  0.333  0.333   +0.188   ← biggest win
-pylint-dev/pylint         4  0.125  0.050  0.333  0.375  0.354  0.400   +0.025
-psf/requests              4  0.125  0.250  0.133  0.175  0.159  0.192   +0.017
-sphinx-doc/sphinx         4  0.000  0.000  0.000  0.000  0.031  0.031   +0.031  (previously dead)
-scikit-learn/scikit-learn 4  0.250  0.375  0.250  0.250  0.267  0.267   +0.017
-astropy/astropy           4  0.333  0.333  0.250  0.375  0.250  0.375    0.000
-matplotlib/matplotlib     4  0.146  0.333  0.250  0.375  0.375  0.375    0.000
-pallets/flask             3  0.500  0.667  0.444  0.417  0.444  0.417    0.000
-sympy/sympy               4  0.000  0.000  0.000  0.000  0.000  0.000    0.000
-django/django             4  0.000  0.083  0.000  0.050  0.028  0.031   −0.019
-mwaskom/seaborn           4  0.083  0.000  0.100  0.146  0.119  0.123   −0.023
-pytest-dev/pytest         4  0.050  0.083  0.125  0.125  0.083  0.083   −0.042
-```
-
-**Pattern:** Expansion wins on repos where the query string reliably contains the target class/function identifier verbatim (xarray, pylint, sphinx, requests). Expansion softens on repos where the query tends to name a sibling method / class rather than the fix target (seaborn, pytest) — the identifier-exact signal promotes the named sibling over the less-obvious fix site.
-
-Notable: **sphinx went 0.000 → 0.031** — a previously dead repo produced its first non-zero MRR under any TACM variant, because one sphinx query had enough code-identifier structure to activate the signal.
+Hit@1 rises for both conditions (TACM 6.4→10.6%, TACM-PPR 10.6→12.8%) but Hit@5 **falls** (TACM 34.0→27.7%, TACM-PPR 36.2→29.8%). The identifier-exact bonus promotes correctly-named siblings into rank 1–2 on some queries but also demotes correct mid-range hits out of top-5 on others. The redistribution is roughly zero-sum at Hit@5 and slightly negative overall.
 
 ---
 
-## Head-to-head: tacm-ppr Exp 05 → Exp 06
+## Head-to-head — tacm-ppr Exp 05 → Exp 06 (paired, k=5)
 
 ```
-helped: 7    hurt: 5    tied: 35
+helped: 1    hurt: 6    tied: 40
 ```
 
-**Wins (exp05 rank → exp06 rank):**
+**Win:**
 
-| Instance | Rank 05 → 06 |
+| Instance | Rank Exp 05 → Exp 06 |
 |---|---|
-| pydata__xarray-4094 | 3 → **1** |
-| mwaskom__seaborn-3010 | 25 → **11** |
-| sphinx-doc__sphinx-7686 | 13 → **8** |
-| pydata__xarray-3364 | 4 → **3** |
-| pylint-dev__pylint-7114 | 10 → 10 (scored higher) |
-| psf__requests-2317 | 7 → 10* |
-| scikit-learn__scikit-learn-10297 | 7 → 15* |
+| pydata__xarray-4094 | 3 → **1** (Hybrid parity achieved) |
 
-(* these two are "helped" by reciprocal-rank delta but moved to worse *strict* rank — the underlying row scored higher on lenient/file metrics; included for completeness of the helped bucket in the analyzer's score-ordered view)
+**Losses:**
 
-**Losses (all small slips):**
-
-| Instance | Rank 05 → 06 |
+| Instance | Rank Exp 05 → Exp 06 |
 |---|---|
-| mwaskom__seaborn-3407 | 3 → 5 |
+| pydata__xarray-3364 | 3 → **MISS** |
+| pallets__flask-4045 | 4 → **MISS** |
+| django__django-11019 | 5 → **MISS** |
+| mwaskom__seaborn-3407 | 3 → 4 |
 | mwaskom__seaborn-3190 | 4 → 5 |
-| pytest-dev__pytest-11148 | 2 → 3 |
-| psf__requests-2148 | 5 → 6 |
-| django__django-11019 | 5 → 8 |
+| pytest-dev__pytest-11148 | 2 → 4 |
 
-All 5 regressions are ≤3-rank slips and all remain in the top-10. No catastrophic demotions (nothing left the candidate pool; no new `ranked_outside_k` entries).
+Three of the six losses are **pool dropouts** (the GT fell outside top-5 entirely). These are the instances where the k=20 run's better-looking numbers came from: at k=20 the GT was still within the expanded candidate pool, just demoted into rank 8–17. The identifier bonus is firing on sibling nodes and pushing the GT past rank 5.
 
 ---
 
 ## Seam tracking — Exp 05 Hybrid-wins-TACM-loses
 
-Exp 05 flagged three instances where Hybrid@≤5 but TACM-PPR@>5.
-
-| Instance | Hybrid | TACM-PPR Exp 05 | TACM-PPR Exp 06 | Status |
+| Instance | Hybrid | TACM-PPR Exp 05 | TACM-PPR Exp 06 (k=5) | Status |
 |---|---|---|---|---|
-| pydata__xarray-4094 | 1 | 3 | **1** | ✅ **closed** (matches Hybrid) |
-| scikit-learn__scikit-learn-10297 | 2 | 7 | 15 | ⚠ worsened |
-| django__django-11001 | 3 | MISS (60) | MISS | ➖ unchanged |
+| pydata__xarray-4094 | 1 | 3 | **1** | ✅ closed |
+| scikit-learn__scikit-learn-10297 | 2 | MISS (7 @k=20) | MISS | ➖ unchanged at k=5 |
+| django__django-11001 | 3 | MISS | MISS | ➖ unchanged |
 
-Expansion cleanly **closed the xarray seam** (TACM-PPR now ties Hybrid at rank 1) but **worsened sklearn-10297**. The sklearn query is *"HuberRegressor should handle RidgeClassifierCV correctly"* — expansion pulled `RidgeClassifierCV.__init__` up via identifier-exact, but the actual GT function has the same `__init__` name shared across many classes; the identifier-exact signal rewarded the literal substring match and overtook the graph signals that had previously placed it at rank 7.
+Only the xarray seam actually closes at k=5. The sklearn case was never in top-5 under Exp 05 either — the "rank 7" figure in the Exp 05 doc was from its top-K=20 diagnostic. At the benchmark budget of k=5, it remained a miss across all TACM variants.
+
+---
+
+## Per-repo breakdown (k=5 paired)
+
+Columns: `t5/p5 = Exp 05 tacm / tacm-ppr MRR`, `t6/p6 = Exp 06`, `Δppr = p6 − p5`.
+
+```
+repo                      N   bm25    hyb     t5     p5     t6     p6     Δppr
+--------------------------------------------------------------------------------
+pydata/xarray             4  0.250  0.250  0.167  0.146  0.250  0.250   +0.104
+astropy/astropy           4  0.333  0.333  0.250  0.375  0.250  0.375    0.000
+matplotlib/matplotlib     4  0.146  0.333  0.250  0.375  0.375  0.375    0.000
+psf/requests              4  0.125  0.250  0.133  0.175  0.125  0.175    0.000
+pylint-dev/pylint         4  0.125  0.050  0.333  0.375  0.333  0.375    0.000
+scikit-learn/scikit-learn 4  0.250  0.375  0.250  0.250  0.250  0.250    0.000
+sphinx-doc/sphinx         4  0.000  0.000  0.000  0.000  0.000  0.000    0.000
+sympy/sympy               4  0.000  0.000  0.000  0.000  0.000  0.000    0.000
+mwaskom/seaborn           4  0.083  0.000  0.100  0.146  0.100  0.113   −0.033
+django/django             4  0.000  0.083  0.000  0.050  0.000  0.000   −0.050
+pytest-dev/pytest         4  0.050  0.083  0.125  0.125  0.083  0.062   −0.062
+pallets/flask             3  0.500  0.667  0.444  0.417  0.333  0.333   −0.083
+```
+
+One repo (xarray) accounts for all the aggregate TACM-PPR gain and is fully cancelled by four regressing repos (seaborn, django, pytest, flask). Nine of twelve repos are flat or negative. The xarray lift alone isn't enough to move the aggregate MRR meaningfully.
 
 ---
 
@@ -119,93 +111,133 @@ Expansion cleanly **closed the xarray seam** (TACM-PPR now ties Hybrid at rank 1
 ```
 Condition     hit    right_file_wrong_fn    ranked_outside_k    gt_not_in_pool
 ------------------------------------------------------------------------------
-tacm          49%                      0%                 47%                4%
-tacm-ppr      47%                      0%                 49%                4%
+tacm          28%                      0%                 68%                4%
+tacm-ppr      30%                      0%                 66%                4%
 ```
 
-`gt_not_in_pool` stayed at 4% (2/47 instances) — upstream candidate-pool problem, expansion cannot fix. `ranked_outside_k` is dominated by the deep-sympy tail (3 instances at rank >1200), same as Exp 05.
+`gt_not_in_pool` unchanged (4% = 2/47 — upstream candidate pool). `ranked_outside_k` rose from Exp 05's 49% to 66-68% — consistent with the "pool dropouts" pattern above.
 
 ---
 
 ## Key findings
 
-### Finding 1: Identifier expansion crosses the Hybrid bar on aggregate MRR
+### Finding 1: The headline MRR lift from the earlier k=20 run does not reproduce at k=5
 
-TACM-PPR Exp 06 MRR **0.215 [0.122, 0.316]** vs Hybrid MRR 0.192 [0.096, 0.298]. First **zero-ML** TACM configuration to sit above Hybrid's point estimate on SWE-bench, at **7× lower latency** (3.5 s vs 25 s p50). The CIs overlap heavily — this is parity, not a distinct win.
+At `--top-k 20` the TACM-PPR MRR was 0.215 with Hit@10 42.6% and File% 77%. At the correctly-paired `--top-k 5`, it is 0.189 / Hit@5 29.8% / File% 59.6%. **The earlier numbers measured a different experiment** (richer candidate tail, different packer behaviour) and were not apples-to-apples with Exp 05. This corrected run shows no pure-algo win over Exp 05 at the Hybrid-paired budget.
 
-TACM Exp 06 (no PPR) also crosses Hybrid: **0.199** vs 0.192. Even without the structural PPR channel, query-side expansion alone is enough to match the Hybrid retriever on MRR.
+### Finding 2: Identifier expansion trades Hit@5 for Hit@1 — net negative on MRR for TACM-PPR
 
-### Finding 2: The aggregate lift comes disproportionately from xarray
+| | TACM Exp 05 | TACM Exp 06 | TACM-PPR Exp 05 | TACM-PPR Exp 06 |
+|---|---|---|---|---|
+| Hit@1 | 6.4% | **10.6%** | 10.6% | **12.8%** |
+| Hit@5 | **34.0%** | 27.7% | **36.2%** | 29.8% |
+| MRR | 0.165 | 0.172 | **0.198** | 0.189 |
 
-xarray went from MRR 0.146 → 0.333 (+0.188). That one repo accounts for roughly half of the aggregate MRR delta. xarray queries use unambiguous code identifiers (`to_xarray`, `MultiIndex`, `Dataset`) and the identifier-exact signal fires cleanly. Pylint, requests, and sphinx provide smaller consistent lifts.
+For TACM (no PPR), Hit@1 gain outweighs Hit@5 loss and MRR climbs slightly. For TACM-PPR (which already had a strong Hit@5 signal from the structural channel), the identifier-exact bonus competes with PPR's rank-2/3/4 placements and demotes them, costing more than it gains. The intervention interacts badly with the Exp 05 gate.
 
-### Finding 3: Hit@10 is the cleanest win — +4-6pp for both conditions
+### Finding 3: Three Exp 05 hits became pool dropouts
 
-```
-           Exp 05    Exp 06    Δ
-tacm       34.0%     40.4%    +6.4pp
-tacm-ppr   36.2%     42.6%    +6.4pp
-```
+`pallets__flask-4045` (4→MISS), `pydata__xarray-3364` (3→MISS), `django__django-11019` (5→MISS). All three were cleanly in top-5 under Exp 05 and are now outside the top-5 pool. This is the core mechanism behind the Hit@5 regression: a bonus of 0.25 magnitude is large enough to reshuffle near-tied siblings past rank 5.
 
-Expansion pulled 3 extra instances into top-10 for each condition. Hit@5 is flat or slightly down (TACM-PPR 36.2% → 31.9%) because the bonus occasionally promotes a wrong identifier-match to rank 2–4, bumping a previous rank-3 hit to rank 5–6. Net effect on MRR is still positive because the Hit@10 gains and new-instance activations (xarray-4094 rank 3 → 1) outweigh the small slips.
+### Finding 4: The one durable win is pydata__xarray-4094
 
-### Finding 4: The bonus is not monotonically safe — 5 regression slips confirm it
+Rank 3 → 1 for both TACM and TACM-PPR. The query extracts unambiguous identifiers (`to_xarray`, `MultiIndex`, `Dataset`) and the target function is the only one matching all three. This is the cleanest case the expansion was designed for, and it works as intended.
 
-I hypothesised in EXPERIMENT_06.md that the bonus is additive and bounded, therefore "cannot push a correct rank-1 out of top-5." That was incorrect in one direction: bounded additive bonuses **can still rearrange tied or near-tied ranks** if they boost a sibling node more than the intended one.
+### Finding 5: The identifier_exact_scale = 0.25 default is too aggressive
 
-The five regressions (seaborn-3407 3→5, seaborn-3190 4→5, pytest-11148 2→3, requests-2148 5→6, django-11019 5→8) all fit this pattern: the query mentions an identifier that is a *class or sibling method name*, and the identifier-exact signal activated on the sibling, boosting it just enough to jump over the GT function.
+Three pool dropouts and four net-negative repos out of twelve suggest the bonus is dominating the combined score in ways that aren't gated by query structure. Leading candidates for a better default:
 
-Potential fix (not tested this run): **cap** `identifier_exact_scale` at 0.15 (currently 0.25), or **gate** on `len(q_idents) >= 2` — a single identifier is easy to mismatch; two co-occurring identifiers are much more diagnostic.
+- **Scale sweep.** 0.25 was chosen by intuition, not tuning. A sweep over {0.05, 0.10, 0.15, 0.20} would likely find a setting that keeps the Hit@1 gains without the Hit@5 losses.
+- **Multi-identifier gate.** Require `len(q_idents) >= 2` before activating the bonus. Single-identifier queries are where sibling-class ambiguity hurts most.
+- **Dampen under high-density PPR.** The bonus competes most with PPR on call-graph-rich repos. Scaling the identifier bonus down when PPR density is already saturated would let PPR's stronger signal keep its top-5 placements.
 
-### Finding 5: File% jumped massively (53→79% for tacm, 60→77% for tacm-ppr)
+### Finding 6: Expansion is still useful as a Hit@1 lever
 
-File routing improved by ~20pp for both conditions. Expansion-enriched BM25 variants surface the right file even when the function ranking slips. This matters for downstream agents and rerankers — they have a much stronger file-level prior to work from, even on instances where the function isn't in the top 5.
+Both conditions gained +2–4pp at Hit@1. For downstream use cases that read only the top-1 candidate (not top-5 context for an agent), expansion is a net win. For the top-K retrieval use case that feeds an agent or reranker, it is not.
 
-### Finding 6: Tok spiked 5k → 17k — investigate before claiming cost parity
+### Finding 7: Latency and tokens genuinely unchanged at matched k
 
-Exp 05 TACM-PPR packed ~5000 tokens; Exp 06 packed ~16000. That is **not** due to identifier expansion directly (no packer change). It is because **Exp 06 used `--top-k 20`** to expose more of the ranking tail for the Hit@10 metric, while Exp 05 used a 4000-token packer budget. The two numbers are not directly comparable for cost.
+| | Exp 05 tacm-ppr | Exp 06 tacm-ppr |
+|---|---|---|
+| Tok | 5032 | 4805 |
+| p50 ms | 2844 | 3049 |
 
-When the same Exp 05 budget is re-applied, the cost column will match Exp 05 — this is a runner-flag difference, not an algorithmic regression. Flagged here so the reader doesn't conclude expansion quadrupled tokens. **Latency is genuinely flat** (3549 ms vs 2844 ms — +700 ms, attributable to the larger top-K and the identifier-exact signal's O(|nodes| × |q_idents|) pass).
-
-### Finding 7: Expansion is strictly non-regressive on `gt_not_in_pool` and `right_file_wrong_fn`
-
-Miss taxonomy proportions are unchanged for the two pool-level buckets. The expansion signal only reorders within the existing candidate pool — it never added or removed candidates. This is the expected behaviour of a bounded additive bonus and confirms the implementation is not accidentally filtering.
+The +200 ms latency comes from the extra BM25 variants and the identifier-exact pass; the token delta is noise. Claims of latency/token parity from the earlier draft hold.
 
 ---
 
-## Comparison table — Exp 04 / 05 / 06 progression
+## Scale sweep — `identifier_exact_scale` ∈ {0.05, 0.10, 0.15, 0.20, 0.25}
 
-Pure-algo TACM progression on the same 47 SWE-bench Python instances:
+Run 2026-04-23. Each scale is a full 47-instance rerun of `tacm` and `tacm-ppr` at `--top-k 5`; `bm25`/`hybrid` re-benchmarked once as a reference (results match Exp 05 exactly, confirming the feature is gated).
+
+**Table 2: Retrieval metrics across the full scale sweep (n=47, k=5)**
 
 ```
-Experiment          TACM MRR       TACM-PPR MRR       Hit@5 (tacm-ppr)    Latency p50
-----------------------------------------------------------------------------------------
-Exp 04 baseline     0.170          — (not enabled)    28%                 3500 ms
-Exp 05 adaptive PPR 0.165          0.198              36%                 2844 ms
-Exp 06 ident expand 0.199          0.215              32% / 43% @10       3544 ms
-Hybrid (MiniLM RRF) 0.192                             28%                 25085 ms
+condition       scale    MRR     Hit@1   Hit@5
+------------------------------------------------
+bm25            —       0.148   0.085   0.277
+hybrid          —       0.192   0.149   0.277
+
+tacm            0.00 *  0.165   0.064   0.340    ← Exp 05 baseline
+tacm            0.05    0.159   0.064   0.319
+tacm            0.10    0.160   0.085   0.298
+tacm            0.15    0.170   0.085   0.319
+tacm            0.20    0.161   0.085   0.298
+tacm            0.25    0.175   0.106   0.298
+
+tacm-ppr        0.00 *  0.198   0.106   0.362    ← Exp 05 baseline
+tacm-ppr        0.05    0.172   0.085   0.319
+tacm-ppr        0.10    0.177   0.106   0.298
+tacm-ppr        0.15    0.187   0.106   0.340
+tacm-ppr        0.20    0.186   0.128   0.298
+tacm-ppr        0.25    0.198   0.128   0.319
 ```
 
-Cumulative pure-algo gain over the original TACM baseline (Exp 04 → Exp 06 TACM-PPR): **+0.045 MRR, +15pp Hit@10**, no ML.
+`* scale 0.00` = `identifier_expansion_enabled=False` (Exp 05 numbers, no rerun).
+
+Raw JSONs: [0.05](../../agent_results/zero_cost_executable_benchmark_20260422_220903.json) · [0.10](../../agent_results/zero_cost_executable_benchmark_20260422_224402.json) · [0.15](../../agent_results/zero_cost_executable_benchmark_20260422_231748.json) · [0.20](../../agent_results/zero_cost_executable_benchmark_20260422_235107.json) · [0.25](../../agent_results/zero_cost_executable_benchmark_20260423_002416.json) · [bm25/hybrid reference](../../agent_results/zero_cost_executable_benchmark_20260423_011707.json).
+
+### What the sweep shows
+
+1. **No scale recovers the Exp 05 TACM-PPR MRR of 0.198.** Best is scale 0.25 at **0.1975** — statistically indistinguishable but not an improvement. Every other scale is strictly worse on MRR.
+2. **Hit@1 climbs monotonically-ish with scale.** TACM-PPR goes 10.6% → 12.8% at scale ≥ 0.20. TACM reaches 10.6% at scale 0.25.
+3. **Hit@5 never recovers the 36.2% baseline.** Best expansion setting is scale 0.15 at **34.0%**. Scales ≥ 0.20 drop Hit@5 to 29.8%.
+4. **No Pareto-optimal scale exists.** The entire Pareto frontier is: baseline dominates on Hit@5/MRR, scale 0.25 dominates on Hit@1. Every non-baseline scale is worse on ≥1 metric vs. baseline.
+5. **The TACM-PPR per-instance trace confirms the mechanism.** At scale 0.15: 0 wins, 3 losses (all top-5 demotions). At scale 0.25: 2 wins (`xarray-4094` 3→1, `flask-4045` 4→3), 4 losses (3 pool dropouts + 1 demotion). The bonus is zero-sum-to-negative across the instance set — it moves ranks around but doesn't create new hits.
+
+### Best scale by criterion
+
+| Criterion | Winner | Condition | Value |
+|---|---|---|---|
+| MRR | **baseline (scale 0.00)** | tacm-ppr | 0.198 |
+| Hit@1 | scale 0.20 or 0.25 | tacm-ppr | 12.8% |
+| Hit@5 | **baseline (scale 0.00)** | tacm-ppr | 36.2% |
+| Hybrid parity on Hit@1 | — | — | unreached (Hybrid 14.9%) |
 
 ---
 
 ## What this experiment does NOT cover
 
-1. **Scale sensitivity.** `identifier_exact_scale = 0.25` is the only setting tested. The 5 regression slips suggest a sweep {0.10, 0.15, 0.20, 0.25} would locate a less aggressive default that keeps the xarray win without the seaborn slippage.
-2. **Two-identifier gate.** A variant requiring `len(q_idents) >= 2` for the exact-match bonus (rather than `>= 1`) would kill single-noun mismatches while preserving multi-identifier hits.
-3. **Re-matched top-K** — Exp 06 used `--top-k 20` while Exp 05 used `--top-k 5`. The token columns are not directly comparable. A rerun at matching `top-k 5` would cleanly confirm latency/token parity.
-4. **Hybrid re-run** — Hybrid was **not** rerun in Exp 06 (per user directive to only test the two changed conditions). If identifier expansion shifted the corpus-level BM25 IDF noticeably, a Hybrid re-run would give a cleaner apples-to-apples.
-5. **Multilingual (non-Python)** — same filter as Exp 05.
+1. ~~**Scale sweep on `identifier_exact_scale`.**~~ Covered above — no scale is a net win on MRR.
+2. **Multi-identifier gate** (`len(q_idents) >= 2` before firing the bonus). Untested. The three pool dropouts (`flask-4045`, `xarray-3364`, `django-11019`) should be inspected to see if their queries have ≥2 extracted identifiers; if they do, a count gate won't save them.
+3. **PPR-density-aware damping.** The Exp 05 adaptive-PPR gate scales PPR by seed density. A symmetric move would scale the identifier bonus *down* when PPR density is high, letting PPR keep its top-5 placements on call-graph-rich repos. Untested.
+4. **Per-repo scale selection.** Repos with prose-heavy queries (sphinx, sympy) get no signal from expansion; repos with identifier-rich queries (xarray, requests) benefit. A repo-adaptive scale might beat the global sweep winner.
+5. **Hybrid rerun with expansion.** Hybrid was not modified; its numbers are unchanged by construction. Porting the expansion signal into Hybrid is a separate experiment.
 
 ---
 
-## Next steps
+## Verdict
 
-1. Sweep `identifier_exact_scale ∈ {0.10, 0.15, 0.20, 0.25}` on the same 47 instances.
-2. Try `identifier_exact_scale = 0.15 + 2-identifier gate`.
-3. Rerun Exp 06 configuration at `--top-k 5` to match Exp 05's token numbers exactly.
-4. Diagnostic: print the `_extract_query_identifiers` output for the 5 regression instances and verify the bonus is firing on the sibling vs GT.
+**Identifier expansion does not produce a Pareto improvement at any tested scale.** The scale sweep over {0.05, 0.10, 0.15, 0.20, 0.25} confirms: baseline (expansion off) beats or ties every scale on MRR and Hit@5; the only thing expansion buys is +2pp Hit@1 at high scales (0.20–0.25), paid for with −3 to −7pp Hit@5. For an agent-feeding retrieval use case, expansion is a **net regression** and should stay off by default.
+
+The one durable mechanism the experiment uncovered — query-side identifier extraction via [`_extract_query_identifiers`](../../tacm_v2/selector/scoring.py) — is worth keeping in the codebase as a building block. It just doesn't earn its keep as an additive top-5 bonus at any tested scale.
+
+**Recommended default:** `identifier_expansion_enabled = False`. Leave the knob in place for Hit@1-specialised use cases (scale 0.25 is the sweet spot there: +2pp Hit@1 vs. baseline, matching Hybrid Hit@5 within noise) and as scaffolding for a future density-damped or repo-adaptive variant.
+
+**What to try next (not in this experiment):**
+- Density-damped expansion (expand *less* when PPR density is high).
+- Qname-prefix trie signal for dotted-path queries (new signal, not a stronger version of the existing one).
+- Hit@1-tuned reranker that consumes top-5 as a candidate pool and uses the expansion signal only at the final tie-break stage.
 
 ---
 
@@ -214,27 +246,38 @@ Cumulative pure-algo gain over the original TACM baseline (Exp 04 → Exp 06 TAC
 ```bash
 cd "ghost of past"
 
-# Re-run the experiment (tacm + tacm-ppr only; bm25/hybrid inherited from Exp 05)
+# Paired k=5 rerun at default scale 0.25 (this experiment's canonical numbers)
 TOKENIZERS_PARALLELISM=false python3 zero_cost_runner.py \
     --retriever tacm,tacm-ppr \
     --dataset executable_benchmark.json \
     --python-only \
     --no-exec \
-    --top-k 20
+    --top-k 5
 
-# Analyzer slice
-python3 analyze_zcr.py agent_results/zero_cost_executable_benchmark_20260422_143421.json
+# Scale sweep (added 2026-04-23)
+for s in 0.05 0.10 0.15 0.20 0.25; do
+  TACM_IDENT_SCALE=$s TOKENIZERS_PARALLELISM=false python3 zero_cost_runner.py \
+      --retriever tacm,tacm-ppr \
+      --dataset executable_benchmark.json \
+      --python-only --no-exec --top-k 5
+done
+
+# bm25+hybrid reference (confirms feature is gated — results match Exp 05)
+TOKENIZERS_PARALLELISM=false python3 zero_cost_runner.py \
+    --retriever bm25,hybrid \
+    --dataset executable_benchmark.json \
+    --python-only --no-exec --top-k 5
 ```
 
-To disable identifier expansion (reproduce Exp 05's TACM/TACM-PPR numbers), revert the two-line patch in [`zero_cost_runner.py`](../../zero_cost_runner.py) at the `condition in ("tacm", "tacm-ppr")` branch back to `SelectorConfig(ppr_enabled=True) if condition == "tacm-ppr" else DEFAULT_CONFIG`.
+Raw JSON (default-scale run): [`zero_cost_executable_benchmark_20260422_210007.json`](../../agent_results/zero_cost_executable_benchmark_20260422_210007.json). Sweep JSONs linked inline in Table 2.
 
 Config knobs in [`tacm_v2/selector/config.py`](../../tacm_v2/selector/config.py):
 
 - `identifier_expansion_enabled: bool = False` (default; set True for this experiment)
-- `identifier_exact_scale: float = 0.25` (bonus weight for exact identifier match)
+- `identifier_exact_scale: float = 0.25` (default for this experiment; **swept {0.05–0.25}**; no scale was Pareto-optimal — keeping default False)
 
-Implementation in [`tacm_v2/selector/scoring.py`](../../tacm_v2/selector/scoring.py):
+The `TACM_IDENT_SCALE` env var in [`zero_cost_runner.py`](../../zero_cost_runner.py) overrides the scale for sweep reproducibility (scale 0 → expansion disabled).
 
-- `_extract_query_identifiers(query)` — query-side token extractor
-- `compute_identifier_exact(query, nodes, graph)` — new bounded side signal
-- `_cascading_bm25(..., identifier_expansion_enabled=...)` — adds two identifier-blob variants to the per-node-max BM25
+Implementation in [`tacm_v2/selector/scoring.py`](../../tacm_v2/selector/scoring.py): `_extract_query_identifiers`, `compute_identifier_exact`, `_cascading_bm25` identifier-blob variants.
+
+To disable and reproduce Exp 05 numbers, revert the `zero_cost_runner.py` config block to `SelectorConfig(ppr_enabled=True) if condition == "tacm-ppr" else DEFAULT_CONFIG`.
