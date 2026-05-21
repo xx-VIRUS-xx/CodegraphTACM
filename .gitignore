@@ -1,0 +1,23 @@
+# Secrets
+.env
+**/.env
+
+# Benchmark repos (SWE-bench targets)
+flask/
+keras/
+pandas/
+requests/
+tornado/
+scrapy/
+sqlalchemy/
+thefuck/
+BugsInPy/
+
+# Junk
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.benchmarks/
+.DS_Store
+**/.DS_Store
