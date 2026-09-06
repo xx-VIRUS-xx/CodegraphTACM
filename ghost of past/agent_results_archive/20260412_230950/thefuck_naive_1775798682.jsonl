@@ -1,1 +1,0 @@
-{"bug_id": "thefuck-7", "condition": "naive", "seed": 42, "success": false, "steps": 5, "prompt_tokens": 23990, "completion_tokens": 325, "duration_s": 115.49900679200073, "patch_applied": false, "test_output": "", "error": ""}

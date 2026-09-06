@@ -1,1 +1,0 @@
-{"bug_id": "thefuck-7", "condition": "tacm", "seed": 42, "success": false, "steps": 2, "prompt_tokens": 5829, "completion_tokens": 122, "duration_s": 284.3391395840008, "patch_applied": false, "test_output": "", "error": "Copilot API rate limit exceeded after retries"}

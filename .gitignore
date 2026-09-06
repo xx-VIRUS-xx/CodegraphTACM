@@ -21,3 +21,5 @@ __pycache__/
 .benchmarks/
 .DS_Store
 **/.DS_Store
+
+archive/**

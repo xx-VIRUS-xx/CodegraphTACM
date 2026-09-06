@@ -1,1 +1,0 @@
-{"bug_id": "thefuck-7", "condition": "tacm", "seed": 42, "success": false, "steps": 5, "prompt_tokens": 20275, "completion_tokens": 145, "duration_s": 31.16564712500258, "patch_applied": false, "test_output": "", "error": ""}
