@@ -35,8 +35,8 @@ Same as the 2026-04-22 baseline run so results are paired and directly comparabl
 - 12 repositories, covering shallow-library (flask, xarray, sklearn, requests) and call-graph-rich (pylint, seaborn, sphinx, django, pytest) code
 - Seeds and instance ordering pinned; paired bootstrap over the same 47 instances
 
-Raw results (Exp 05): [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
-Raw baseline (flat PPR): [`agent_results/zero_cost_executable_benchmark_20260422_012137.json`](../../agent_results/zero_cost_executable_benchmark_20260422_012137.json)
+Raw results (Exp 05): [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+Raw baseline (flat PPR): [`agent_results/zero_cost_executable_benchmark_20260422_012137.json`](../agent_results/zero_cost_executable_benchmark_20260422_012137.json)
 
 ## Systems
 
@@ -70,7 +70,7 @@ Statistical:
 
 ## Adaptive gate — mechanism
 
-Computed once per query inside `_compute_ppr` in [`selector/scoring.py`](../../tacm_v2/selector/scoring.py):
+Computed once per query inside `_compute_ppr` in [`selector/scoring.py`](../tacm_v2/selector/scoring.py):
 
 ```
 seeds        = BM25 top-K function node_ids (K = ppr_seed_k, default 20)
@@ -84,7 +84,7 @@ density_factor = ppr_density_min_scale                 # default 0.0
 
 The PPR scale applied to a node's score is then `pr_scale * density_factor`, where `pr_scale` is the configured strong/weak PPR weight from Exp 04.
 
-Three new knobs in [`selector/config.py`](../../tacm_v2/selector/config.py):
+Three new knobs in [`selector/config.py`](../tacm_v2/selector/config.py):
 
 ```python
 ppr_density_enabled:     bool  = True

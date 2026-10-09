@@ -3,10 +3,10 @@
 **Date:** 2026-04-22 (initial) / 2026-04-23 (scale sweep added)
 **Status:** Complete (n=47 paired Python instances; default-scale 0.25 run + full sweep over `identifier_exact_scale` ∈ {0.05, 0.10, 0.15, 0.20, 0.25} at `--top-k 5`; `bm25`/`hybrid` re-benchmarked as reference and match Exp 05 exactly)
 **Dataset:** SWE-bench Lite + Multilingual Python-only (same 47 instances as Exp 05)
-**Raw results (k=5, paired with Exp 05):** [`agent_results/zero_cost_executable_benchmark_20260422_210007.json`](../../agent_results/zero_cost_executable_benchmark_20260422_210007.json)
-**Baseline (Exp 05, k=5):** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+**Raw results (k=5, paired with Exp 05):** [`agent_results/zero_cost_executable_benchmark_20260422_210007.json`](../agent_results/zero_cost_executable_benchmark_20260422_210007.json)
+**Baseline (Exp 05, k=5):** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
 
-> **Note on an earlier k=20 run.** An earlier version of this doc reported MRR 0.215 for TACM-PPR based on a run at `--top-k 20` ([`zero_cost_executable_benchmark_20260422_143421.json`](../../agent_results/zero_cost_executable_benchmark_20260422_143421.json)). That run packed a deeper candidate tail and inflated Hit@10/File%/Tok numbers that were not apples-to-apples with Exp 05's k=5 budget. The table below is the corrected paired comparison; the k=20 file is preserved for reference only.
+> **Note on an earlier k=20 run.** An earlier version of this doc reported MRR 0.215 for TACM-PPR based on a run at `--top-k 20` ([`zero_cost_executable_benchmark_20260422_143421.json`](../agent_results/zero_cost_executable_benchmark_20260422_143421.json)). That run packed a deeper candidate tail and inflated Hit@10/File%/Tok numbers that were not apples-to-apples with Exp 05's k=5 budget. The table below is the corrected paired comparison; the k=20 file is preserved for reference only.
 
 ---
 
@@ -195,7 +195,7 @@ tacm-ppr        0.25    0.198   0.128   0.319
 
 `* scale 0.00` = `identifier_expansion_enabled=False` (Exp 05 numbers, no rerun).
 
-Raw JSONs: [0.05](../../agent_results/zero_cost_executable_benchmark_20260422_220903.json) · [0.10](../../agent_results/zero_cost_executable_benchmark_20260422_224402.json) · [0.15](../../agent_results/zero_cost_executable_benchmark_20260422_231748.json) · [0.20](../../agent_results/zero_cost_executable_benchmark_20260422_235107.json) · [0.25](../../agent_results/zero_cost_executable_benchmark_20260423_002416.json) · [bm25/hybrid reference](../../agent_results/zero_cost_executable_benchmark_20260423_011707.json).
+Raw JSONs: [0.05](../agent_results/zero_cost_executable_benchmark_20260422_220903.json) · [0.10](../agent_results/zero_cost_executable_benchmark_20260422_224402.json) · [0.15](../agent_results/zero_cost_executable_benchmark_20260422_231748.json) · [0.20](../agent_results/zero_cost_executable_benchmark_20260422_235107.json) · [0.25](../agent_results/zero_cost_executable_benchmark_20260423_002416.json) · [bm25/hybrid reference](../agent_results/zero_cost_executable_benchmark_20260423_011707.json).
 
 ### What the sweep shows
 
@@ -230,7 +230,7 @@ Raw JSONs: [0.05](../../agent_results/zero_cost_executable_benchmark_20260422_22
 
 **Identifier expansion does not produce a Pareto improvement at any tested scale.** The scale sweep over {0.05, 0.10, 0.15, 0.20, 0.25} confirms: baseline (expansion off) beats or ties every scale on MRR and Hit@5; the only thing expansion buys is +2pp Hit@1 at high scales (0.20–0.25), paid for with −3 to −7pp Hit@5. For an agent-feeding retrieval use case, expansion is a **net regression** and should stay off by default.
 
-The one durable mechanism the experiment uncovered — query-side identifier extraction via [`_extract_query_identifiers`](../../tacm_v2/selector/scoring.py) — is worth keeping in the codebase as a building block. It just doesn't earn its keep as an additive top-5 bonus at any tested scale.
+The one durable mechanism the experiment uncovered — query-side identifier extraction via [`_extract_query_identifiers`](../tacm_v2/selector/scoring.py) — is worth keeping in the codebase as a building block. It just doesn't earn its keep as an additive top-5 bonus at any tested scale.
 
 **Recommended default:** `identifier_expansion_enabled = False`. Leave the knob in place for Hit@1-specialised use cases (scale 0.25 is the sweet spot there: +2pp Hit@1 vs. baseline, matching Hybrid Hit@5 within noise) and as scaffolding for a future density-damped or repo-adaptive variant.
 
@@ -244,7 +244,7 @@ The one durable mechanism the experiment uncovered — query-side identifier ext
 ## Reproducibility
 
 ```bash
-cd "ghost of past"
+# run from the repository root
 
 # Paired k=5 rerun at default scale 0.25 (this experiment's canonical numbers)
 TOKENIZERS_PARALLELISM=false python3 zero_cost_runner.py \
@@ -269,15 +269,15 @@ TOKENIZERS_PARALLELISM=false python3 zero_cost_runner.py \
     --python-only --no-exec --top-k 5
 ```
 
-Raw JSON (default-scale run): [`zero_cost_executable_benchmark_20260422_210007.json`](../../agent_results/zero_cost_executable_benchmark_20260422_210007.json). Sweep JSONs linked inline in Table 2.
+Raw JSON (default-scale run): [`zero_cost_executable_benchmark_20260422_210007.json`](../agent_results/zero_cost_executable_benchmark_20260422_210007.json). Sweep JSONs linked inline in Table 2.
 
-Config knobs in [`tacm_v2/selector/config.py`](../../tacm_v2/selector/config.py):
+Config knobs in [`tacm_v2/selector/config.py`](../tacm_v2/selector/config.py):
 
 - `identifier_expansion_enabled: bool = False` (default; set True for this experiment)
 - `identifier_exact_scale: float = 0.25` (default for this experiment; **swept {0.05–0.25}**; no scale was Pareto-optimal — keeping default False)
 
-The `TACM_IDENT_SCALE` env var in [`zero_cost_runner.py`](../../zero_cost_runner.py) overrides the scale for sweep reproducibility (scale 0 → expansion disabled).
+The `TACM_IDENT_SCALE` env var in [`zero_cost_runner.py`](../zero_cost_runner.py) overrides the scale for sweep reproducibility (scale 0 → expansion disabled).
 
-Implementation in [`tacm_v2/selector/scoring.py`](../../tacm_v2/selector/scoring.py): `_extract_query_identifiers`, `compute_identifier_exact`, `_cascading_bm25` identifier-blob variants.
+Implementation in [`tacm_v2/selector/scoring.py`](../tacm_v2/selector/scoring.py): `_extract_query_identifiers`, `compute_identifier_exact`, `_cascading_bm25` identifier-blob variants.
 
 To disable and reproduce Exp 05 numbers, revert the `zero_cost_runner.py` config block to `SelectorConfig(ppr_enabled=True) if condition == "tacm-ppr" else DEFAULT_CONFIG`.

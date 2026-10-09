@@ -74,7 +74,7 @@ scores[nid] += cfg.identifier_exact_scale * compute_identifier_exact(...)
 
 Same paired 47 SWE-bench Lite+Multilingual Python instances as Experiments 04/05 — results are directly comparable and paired-bootstrap p-values can be computed on the same instance axis.
 
-Raw baseline (Exp 05, adaptive PPR, **no** identifier expansion): [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+Raw baseline (Exp 05, adaptive PPR, **no** identifier expansion): [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
 
 ## Systems
 

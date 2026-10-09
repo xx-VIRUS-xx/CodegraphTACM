@@ -342,15 +342,15 @@ Exp 04 tacm (budgeted) outperforms Exp 03 tacm-full on the code-grounded subset 
 
 ```bash
 # Full benchmark (all 4 projects in dataset)
-TOKENIZERS_PARALLELISM=false python3 codegraph-tacm/tools/run_experiment_04.py
+TOKENIZERS_PARALLELISM=false python3 tools/run_experiment_04.py
 
 # Subset by project
-TOKENIZERS_PARALLELISM=false python3 codegraph-tacm/tools/run_experiment_04.py --project thefuck scrapy
+TOKENIZERS_PARALLELISM=false python3 tools/run_experiment_04.py --project thefuck scrapy
 
 # Results
-cat codegraph-tacm/experiment_04_outputs/experiment_04_summary.json
+cat results/experiment_04/experiment_04_summary.json
 # Per-bug context logs
-ls codegraph-tacm/experiment_04_outputs/contexts/<project>/<bug_id>/
+ls results/experiment_04/contexts/<project>/<bug_id>/
 ```
 
-Results saved in `codegraph-tacm/experiment_04_outputs/`.
+Results saved in `results/experiment_04/`.

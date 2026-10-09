@@ -17,7 +17,7 @@ This experiment removes the LLM patch-writing step and asks a cleaner question:
 ## Dataset
 
 Input tasks come from:
-- [bugsinpy_code_grounded_benchmark_ready.jsonl](/Users/xxvirusxx/PY/CodegraphTACM/codegraph-tacm/datasets/bugsinpy_code_grounded_benchmark_ready.jsonl)
+- [bugsinpy_code_grounded_benchmark_ready.jsonl](../datasets/bugsinpy_code_grounded_benchmark_ready.jsonl)
 
 Only these labels are included:
 - `code_explicit`
@@ -100,9 +100,9 @@ These show how expensive the retrieved context is and how much of it is actual f
 Experiment 04 keeps a readable log of each provider's output for each bug.
 
 Output layout:
-- `codegraph-tacm/experiment_04_outputs/experiment_04_results.jsonl`
-- `codegraph-tacm/experiment_04_outputs/experiment_04_summary.json`
-- `codegraph-tacm/experiment_04_outputs/contexts/<project>/<bug_id>/<condition>.md`
+- `results/experiment_04/experiment_04_results.jsonl`
+- `results/experiment_04/experiment_04_summary.json`
+- `results/experiment_04/contexts/<project>/<bug_id>/<condition>.md`
 
 Each context log contains:
 - the query
@@ -116,11 +116,11 @@ This makes debugging much easier:
 ## Run
 
 ```bash
-python3 codegraph-tacm/tools/run_experiment_04.py
+python3 tools/run_experiment_04.py
 ```
 
 Project-specific:
 
 ```bash
-python3 codegraph-tacm/tools/run_experiment_04.py --project thefuck scrapy
+python3 tools/run_experiment_04.py --project thefuck scrapy
 ```

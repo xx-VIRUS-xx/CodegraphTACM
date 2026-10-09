@@ -5,7 +5,7 @@
 **Dataset:** SWE-bench Lite + Multilingual, Python-only (47 instances, 12 repos)
 **Token budget:** 4000 tokens per condition
 **Conditions:** bm25, hybrid (RRF of BM25 + MiniLM), tacm, tacm-ppr (density-gated)
-**Raw results:** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
+**Raw results:** [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../agent_results/zero_cost_executable_benchmark_20260422_103746.json)
 
 ---
 
@@ -206,7 +206,7 @@ TACM-PPR packs slightly fewer tokens than vanilla TACM (5032 vs 5118) because th
 ## Reproducibility
 
 ```bash
-cd "ghost of past"
+# run from the repository root
 
 # Re-run the experiment
 python3 zero_cost_runner.py \
@@ -224,7 +224,7 @@ python3 analyze_zcr.py agent_results/zero_cost_executable_benchmark_20260422_103
 # Edit tacm_v2/selector/config.py:  ppr_density_enabled = False
 ```
 
-Raw JSON at [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../../agent_results/zero_cost_executable_benchmark_20260422_103746.json).
-Flat-PPR baseline at [`agent_results/zero_cost_executable_benchmark_20260422_012137.json`](../../agent_results/zero_cost_executable_benchmark_20260422_012137.json).
-Config knobs in [`tacm_v2/selector/config.py`](../../tacm_v2/selector/config.py) (`ppr_density_enabled`, `ppr_density_min_scale`, `ppr_density_saturation`).
-Gate implementation in [`tacm_v2/selector/scoring.py`](../../tacm_v2/selector/scoring.py) `_compute_ppr`.
+Raw JSON at [`agent_results/zero_cost_executable_benchmark_20260422_103746.json`](../agent_results/zero_cost_executable_benchmark_20260422_103746.json).
+Flat-PPR baseline at [`agent_results/zero_cost_executable_benchmark_20260422_012137.json`](../agent_results/zero_cost_executable_benchmark_20260422_012137.json).
+Config knobs in [`tacm_v2/selector/config.py`](../tacm_v2/selector/config.py) (`ppr_density_enabled`, `ppr_density_min_scale`, `ppr_density_saturation`).
+Gate implementation in [`tacm_v2/selector/scoring.py`](../tacm_v2/selector/scoring.py) `_compute_ppr`.
