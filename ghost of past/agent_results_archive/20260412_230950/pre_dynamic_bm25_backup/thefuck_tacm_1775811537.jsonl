@@ -1,0 +1,2 @@
+{"bug_id": "thefuck-1", "condition": "tacm", "seed": 42, "success": false, "steps": 1, "prompt_tokens": 0, "completion_tokens": 0, "duration_s": 120.03158879200055, "patch_applied": false, "test_output": "", "error": "Claude Code CLI timed out"}
+{"bug_id": "thefuck-3", "condition": "tacm", "seed": 42, "success": false, "steps": 1, "prompt_tokens": 0, "completion_tokens": 0, "duration_s": 120.19186774999253, "patch_applied": false, "test_output": "", "error": "Claude Code CLI timed out"}

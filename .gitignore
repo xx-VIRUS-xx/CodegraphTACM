@@ -1,25 +1,31 @@
 # Secrets
 .env
 **/.env
+.env.*
+!.env.example
 
-# Benchmark repos (SWE-bench targets)
-flask/
-keras/
-pandas/
-requests/
-tornado/
-scrapy/
-sqlalchemy/
-thefuck/
-BugsInPy/
+# Benchmark target repos cloned locally for experiments (not part of this project)
+/flask/
+/keras/
+/pandas/
+/requests/
+/tornado/
+/scrapy/
+/sqlalchemy/
+/thefuck/
+/BugsInPy/
 
-# Junk
+# Old on-disk copy of the pre-restructure archive (full history is in git)
+/archive/
+
+# Python and tooling
 __pycache__/
-**/__pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
 .benchmarks/
-.DS_Store
-**/.DS_Store
+.venv/
+venv/
 
-archive/**
+# OS
+.DS_Store

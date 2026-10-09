@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TACM-v2 Research Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #f6f4ee;
+        --ink: #1f1e1a;
+        --muted: #5b5a53;
+        --panel: #fffdf7;
+        --line: #dad4c5;
+        --accent-a: #0f766e;
+        --accent-b: #b45309;
+        --accent-c: #0f172a;
+        --good: #047857;
+        --warn: #b45309;
+        --bad: #b91c1c;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 10% 10%, rgba(15, 118, 110, 0.09), transparent 40%),
+          radial-gradient(circle at 90% 15%, rgba(180, 83, 9, 0.08), transparent 42%),
+          linear-gradient(180deg, #f8f6f0 0%, #f3eee2 100%);
+      }
+
+      .shell {
+        max-width: 1300px;
+        margin: 0 auto;
+        padding: 22px;
+        animation: rise 560ms ease;
+      }
+
+      .hero {
+        border: 1px solid var(--line);
+        background: linear-gradient(120deg, #fffef9 0%, #f7f2e6 100%);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 14px 34px rgba(20, 18, 11, 0.07);
+      }
+
+      .eyebrow {
+        font-family: "IBM Plex Mono", monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent-a);
+        font-size: 12px;
+      }
+
+      h1 {
+        margin: 8px 0 6px;
+        font-size: clamp(28px, 4vw, 46px);
+        line-height: 1.06;
+      }
+
+      .subtitle {
+        max-width: 82ch;
+        color: var(--muted);
+        margin: 0;
+      }
+
+      .meta-grid {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .meta-card {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 14px;
+        padding: 12px;
+      }
+
+      .meta-card .k {
+        font-family: "IBM Plex Mono", monospace;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .meta-card .v {
+        font-weight: 700;
+        margin-top: 5px;
+      }
+
+      .layout {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: 1.05fr 1fr;
+        gap: 14px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 8px 22px rgba(20, 18, 11, 0.06);
+      }
+
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .findings {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .finding {
+        border: 1px solid var(--line);
+        border-left: 4px solid var(--accent-a);
+        border-radius: 12px;
+        padding: 10px;
+        background: #fff;
+        animation: fadeUp 560ms ease;
+      }
+
+      .finding h3 {
+        margin: 0 0 6px;
+        font-size: 14px;
+      }
+
+      .finding p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        align-items: end;
+      }
+
+      label {
+        display: block;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      input,
+      select,
+      button,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        font-family: inherit;
+        font-size: 14px;
+        background: #fff;
+      }
+
+      textarea {
+        min-height: 84px;
+        resize: vertical;
+      }
+
+      button {
+        background: linear-gradient(90deg, var(--accent-a), #0c5f58);
+        color: #fff;
+        border: none;
+        font-weight: 700;
+        cursor: pointer;
+        transition: transform 130ms ease, opacity 130ms ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      .ghost {
+        background: #fff;
+        color: var(--accent-c);
+        border: 1px solid var(--line);
+      }
+
+      .terminal {
+        margin-top: 10px;
+        background: #151923;
+        color: #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        min-height: 160px;
+        max-height: 300px;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 8px;
+        text-align: left;
+      }
+
+      th {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .chip {
+        padding: 2px 7px;
+        border-radius: 999px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+      }
+
+      .chip.good { background: #ddf6ee; color: var(--good); }
+      .chip.warn { background: #fff1da; color: var(--warn); }
+      .chip.bad  { background: #ffe3e3; color: var(--bad); }
+
+      .query-layout {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .rank-list {
+        margin: 0;
+        padding-left: 20px;
+        font-size: 13px;
+      }
+
+      .rank-list li {
+        margin-bottom: 6px;
+      }
+
+      @media (max-width: 980px) {
+        .meta-grid,
+        .controls,
+        .findings,
+        .query-layout,
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(9px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="eyebrow">TACM-v2 Research Interface</div>
+        <h1>Benchmark and Retrieval Lab</h1>
+        <p class="subtitle">
+          Compare TACM-v2 against BM25 and RepoMap, launch live benchmark runs,
+          and inspect query-level retrieval behavior under fixed token budgets.
+        </p>
+
+        <div class="meta-grid" id="meta-grid"></div>
+      </section>
+
+      <section class="layout">
+        <div class="panel">
+          <h2>Experiment 02 Summary</h2>
+          <canvas id="mrrChart" height="180"></canvas>
+          <div style="height: 12px"></div>
+          <canvas id="hitChart" height="160"></canvas>
+        </div>
+
+        <div class="panel">
+          <h2>Key Findings</h2>
+          <div class="findings" id="findings"></div>
+        </div>
+      </section>
+
+      <section class="layout">
+        <div class="panel">
+          <h2>Run Benchmark (Live)</h2>
+          <div class="controls">
+            <div>
+              <label>Project</label>
+              <select id="run-project">
+                <option>thefuck</option>
+                <option>scrapy</option>
+                <option>tornado</option>
+              </select>
+            </div>
+            <div>
+              <label>Repo Path</label>
+              <input id="run-repo" value="./thefuck" />
+            </div>
+            <div>
+              <label>Budgets CSV</label>
+              <input id="run-budgets" value="800,4000" />
+            </div>
+            <div>
+              <label>Max Bugs</label>
+              <input id="run-max" value="30" type="number" />
+            </div>
+            <div>
+              <label>Top-K</label>
+              <input id="run-topk" value="10" type="number" />
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 9px;">
+            <button id="run-btn">Start Run</button>
+            <button class="ghost" id="clear-log">Clear Log</button>
+          </div>
+          <div class="terminal" id="run-log"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Per-Task Snapshot</h2>
+          <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <select id="pt-project">
+              <option>thefuck</option>
+              <option>scrapy</option>
+              <option>tornado</option>
+            </select>
+            <button class="ghost" id="pt-refresh">Refresh</button>
+          </div>
+          <div style="max-height: 340px; overflow:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Bug</th>
+                  <th>BM25</th>
+                  <th>RepoMap</th>
+                  <th>TACM-v2</th>
+                  <th>GT</th>
+                </tr>
+              </thead>
+              <tbody id="pt-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top: 14px;">
+        <h2>Interactive Query Compare</h2>
+        <div class="controls" style="grid-template-columns: 1fr 180px 160px 160px auto;">
+          <div>
+            <label>Natural language bug query</label>
+            <textarea id="query-text">fix parsing of operations when chained aliases are present</textarea>
+          </div>
+          <div>
+            <label>Project</label>
+            <select id="query-project">
+              <option>thefuck</option>
+              <option>scrapy</option>
+              <option>tornado</option>
+            </select>
+          </div>
+          <div>
+            <label>Budget</label>
+            <input id="query-budget" type="number" value="4000" />
+          </div>
+          <div>
+            <label>Top-K</label>
+            <input id="query-topk" type="number" value="10" />
+          </div>
+          <div>
+            <button id="query-btn">Run Query</button>
+          </div>
+        </div>
+
+        <div id="query-meta" style="margin-top:10px; color:var(--muted);"></div>
+
+        <div class="query-layout">
+          <div class="panel" style="margin:0;">
+            <h2>BM25 Top Results</h2>
+            <ol class="rank-list" id="bm25-list"></ol>
+          </div>
+          <div class="panel" style="margin:0;">
+            <h2>TACM-v2 Top Results</h2>
+            <ol class="rank-list" id="v2-list"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const state = { results: null };
+
+      async function getJSON(url, options = {}) {
+        const res = await fetch(url, options);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        return res.json();
+      }
+
+      function fmtDelta(v) {
+        const d = v > 0 ? `+${v.toFixed(3)}` : v.toFixed(3);
+        return d;
+      }
+
+      function setMeta(results) {
+        const totalTasks = Object.values(results.projects).reduce((n, p) => n + p.tasks, 0);
+        const cards = [
+          { k: "Experiment", v: results.meta.experiment },
+          { k: "Date", v: results.meta.date },
+          { k: "Projects", v: String(Object.keys(results.projects).length) },
+          { k: "Tasks", v: String(totalTasks) },
+        ];
+        const el = document.getElementById("meta-grid");
+        el.innerHTML = cards.map(c => `<div class="meta-card"><div class="k">${c.k}</div><div class="v">${c.v}</div></div>`).join("");
+      }
+
+      function renderFindings(results) {
+        const box = document.getElementById("findings");
+        box.innerHTML = results.findings.map((f) => `
+          <article class="finding" style="border-left-color:${colorFor(f.color)};">
+            <h3>${f.title}</h3>
+            <p>${f.body}</p>
+          </article>
+        `).join("");
+      }
+
+      function colorFor(name) {
+        const m = {
+          indigo: "#0f766e",
+          emerald: "#047857",
+          amber: "#b45309",
+          slate: "#0f172a",
+        };
+        return m[name] || "#0f172a";
+      }
+
+      function renderCharts(results) {
+        const labels = results.rows.map(r => `${r.project}@${r.budget}`);
+        const bm25 = results.rows.map(r => r.bm25_mrr);
+        const rm   = results.rows.map(r => r.rm_mrr);
+        const v2   = results.rows.map(r => r.v2_mrr);
+
+        const ctx1 = document.getElementById("mrrChart");
+        new Chart(ctx1, {
+          type: "line",
+          data: {
+            labels,
+            datasets: [
+              { label: "BM25 MRR", data: bm25, borderColor: "#b45309", backgroundColor: "#b45309", tension: 0.26 },
+              { label: "RepoMap MRR", data: rm, borderColor: "#64748b", backgroundColor: "#64748b", tension: 0.26 },
+              { label: "TACM-v2 MRR", data: v2, borderColor: "#0f766e", backgroundColor: "#0f766e", tension: 0.26, borderWidth: 3 },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: "bottom" } },
+            scales: { y: { beginAtZero: true, max: 1.0 } },
+          },
+        });
+
+        const ctx2 = document.getElementById("hitChart");
+        new Chart(ctx2, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [
+              { label: "BM25 Hit%", data: results.rows.map(r => r.bm25_hit), backgroundColor: "#f59e0b" },
+              { label: "RepoMap Hit%", data: results.rows.map(r => r.rm_hit), backgroundColor: "#94a3b8" },
+              { label: "TACM-v2 Hit%", data: results.rows.map(r => r.v2_hit), backgroundColor: "#0f766e" },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: "bottom" } },
+            scales: { y: { beginAtZero: true, max: 100 } },
+          },
+        });
+      }
+
+      function rankChip(v) {
+        if (v === null || v === undefined) return `<span class="chip bad">miss</span>`;
+        if (v <= 3) return `<span class="chip good">#${v}</span>`;
+        if (v <= 10) return `<span class="chip warn">#${v}</span>`;
+        return `<span class="chip bad">#${v}</span>`;
+      }
+
+      function renderPerTask(project) {
+        const rows = (state.results.per_task[project] || []);
+        const body = document.getElementById("pt-body");
+        body.innerHTML = rows.map(r => `
+          <tr>
+            <td>${r.bug_id}</td>
+            <td>${rankChip(r.bm25)}</td>
+            <td>${rankChip(r.rm)}</td>
+            <td>${rankChip(r.v2)}</td>
+            <td style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.gt}</td>
+          </tr>
+        `).join("") || `<tr><td colspan="5">No per-task data available.</td></tr>`;
+      }
+
+      async function init() {
+        state.results = await getJSON("/api/results");
+        setMeta(state.results);
+        renderFindings(state.results);
+        renderCharts(state.results);
+        renderPerTask("thefuck");
+      }
+
+      document.getElementById("pt-project").addEventListener("change", (e) => {
+        renderPerTask(e.target.value);
+      });
+
+      document.getElementById("pt-refresh").addEventListener("click", async () => {
+        state.results = await getJSON("/api/results");
+        renderPerTask(document.getElementById("pt-project").value);
+      });
+
+      document.getElementById("run-project").addEventListener("change", (e) => {
+        document.getElementById("run-repo").value = `./${e.target.value}`;
+      });
+
+      document.getElementById("clear-log").addEventListener("click", () => {
+        document.getElementById("run-log").textContent = "";
+      });
+
+      document.getElementById("run-btn").addEventListener("click", async () => {
+        const project = document.getElementById("run-project").value;
+        const repo = document.getElementById("run-repo").value.trim();
+        const budgets = document.getElementById("run-budgets").value
+          .split(",")
+          .map((x) => Number(x.trim()))
+          .filter((x) => Number.isFinite(x) && x > 0);
+        const max_bugs = Number(document.getElementById("run-max").value || 30);
+        const top_k = Number(document.getElementById("run-topk").value || 10);
+
+        const log = document.getElementById("run-log");
+        log.textContent += `\n$ starting benchmark: project=${project} budgets=${budgets.join(",")}\n`;
+
+        const run = await getJSON("/api/benchmark/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project, repo, budgets, max_bugs, top_k }),
+        });
+
+        const es = new EventSource(`/api/benchmark/stream/${run.run_id}`);
+        es.onmessage = (evt) => {
+          if (evt.data === "[DONE]") {
+            log.textContent += "\n$ benchmark finished\n";
+            log.scrollTop = log.scrollHeight;
+            es.close();
+            return;
+          }
+          try {
+            const line = JSON.parse(evt.data);
+            log.textContent += line;
+          } catch {
+            log.textContent += evt.data + "\n";
+          }
+          log.scrollTop = log.scrollHeight;
+        };
+        es.onerror = () => {
+          log.textContent += "\n[stream ended]\n";
+          log.scrollTop = log.scrollHeight;
+          es.close();
+        };
+      });
+
+      document.getElementById("query-btn").addEventListener("click", async () => {
+        const query = document.getElementById("query-text").value.trim();
+        const project = document.getElementById("query-project").value;
+        const budget = Number(document.getElementById("query-budget").value || 4000);
+        const top_k = Number(document.getElementById("query-topk").value || 10);
+
+        const bm25 = document.getElementById("bm25-list");
+        const v2 = document.getElementById("v2-list");
+        const meta = document.getElementById("query-meta");
+
+        bm25.innerHTML = "<li>Loading...</li>";
+        v2.innerHTML = "<li>Loading...</li>";
+        meta.textContent = "";
+
+        try {
+          const res = await getJSON("/api/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, project, budget, top_k }),
+          });
+
+          if (Array.isArray(res.bm25)) {
+            bm25.innerHTML = res.bm25.map((r) =>
+              `<li><strong>#${r.rank}</strong> ${r.name}<br /><span style="color:var(--muted)">${r.file}</span></li>`
+            ).join("") || "<li>No results.</li>";
+          } else {
+            bm25.innerHTML = `<li>Error: ${res.bm25.error}</li>`;
+          }
+
+          if (Array.isArray(res.tacm_v2)) {
+            v2.innerHTML = res.tacm_v2.map((r) =>
+              `<li><strong>#${r.rank}</strong> ${r.name} <span class="chip good">${r.score}</span><br /><span style="color:var(--muted)">${r.file}</span></li>`
+            ).join("") || "<li>No results.</li>";
+          } else {
+            v2.innerHTML = `<li>Error: ${res.tacm_v2.error}</li>`;
+          }
+
+          if (res.tacm_v2_meta) {
+            meta.innerHTML = `
+              intent=${res.tacm_v2_meta.intent} | total_tokens=${res.tacm_v2_meta.total_tokens} |
+              FILE=${res.tacm_v2_meta.file_count}, CLASS=${res.tacm_v2_meta.class_count}, FUNCTION=${res.tacm_v2_meta.fn_count}
+            `;
+          }
+        } catch (err) {
+          bm25.innerHTML = `<li>${err.message}</li>`;
+          v2.innerHTML = `<li>${err.message}</li>`;
+        }
+      });
+
+      init().catch((e) => {
+        document.querySelector(".shell").innerHTML = `<div class="panel">Failed to load dashboard: ${e.message}</div>`;
+      });
+    </script>
+  </body>
+</html>

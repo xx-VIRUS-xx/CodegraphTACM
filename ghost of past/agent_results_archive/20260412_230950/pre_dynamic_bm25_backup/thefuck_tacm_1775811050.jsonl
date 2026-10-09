@@ -1,0 +1,2 @@
+{"bug_id": "thefuck-1", "condition": "tacm", "seed": 42, "success": false, "steps": 1, "prompt_tokens": 0, "completion_tokens": 0, "duration_s": 1.300001167692244e-05, "patch_applied": false, "test_output": "", "error": "name 'subprocess' is not defined"}
+{"bug_id": "thefuck-3", "condition": "tacm", "seed": 42, "success": false, "steps": 1, "prompt_tokens": 0, "completion_tokens": 0, "duration_s": 1.3708006008528173e-05, "patch_applied": false, "test_output": "", "error": "name 'subprocess' is not defined"}

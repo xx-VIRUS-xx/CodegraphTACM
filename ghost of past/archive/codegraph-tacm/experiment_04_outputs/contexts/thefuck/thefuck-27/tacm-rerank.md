@@ -1,0 +1,403 @@
+# thefuck-27 :: tacm-rerank
+
+query: Fix the open rule
+
+## selected nodes
+
+- rank=1 layer=FUNCTION tokens=66 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/unix.py::open_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/unix.py
+- rank=2 layer=FUNCTION tokens=137 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/open.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/open.py
+- rank=3 layer=FUNCTION tokens=152 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.is_match file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py
+- rank=4 layer=FUNCTION tokens=284 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.from_path file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py
+- rank=5 layer=FUNCTION tokens=115 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_loaded_rules file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py
+- rank=6 layer=FUNCTION tokens=107 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_rules file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py
+- rank=7 layer=FUNCTION tokens=144 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_corrected_commands file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py
+- rank=8 layer=FUNCTION tokens=67 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py::match file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py
+- rank=9 layer=FUNCTION tokens=91 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py
+- rank=10 layer=FUNCTION tokens=91 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/cargo_no_command.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/cargo_no_command.py
+- rank=11 layer=FUNCTION tokens=92 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_alias.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_alias.py
+- rank=12 layer=FUNCTION tokens=132 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py::replace_argument file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py
+- rank=13 layer=FUNCTION tokens=54 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/logs.py::rule_failed file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/logs.py
+- rank=14 layer=FUNCTION tokens=104 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py::Settings._rules_from_env file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py
+- rank=15 layer=FUNCTION tokens=107 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py::Settings._priority_from_env file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py
+- rank=16 layer=FUNCTION tokens=169 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/fab_command_not_found.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/fab_command_not_found.py
+- rank=17 layer=FUNCTION tokens=51 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/win32.py::open_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/win32.py
+- rank=18 layer=FUNCTION tokens=57 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py::builtins_open file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py
+- rank=19 layer=FUNCTION tokens=61 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_ui.py::patch file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_ui.py
+- rank=20 layer=FUNCTION tokens=77 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_corrector.py::TestGetRules.load_source file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_corrector.py
+- rank=21 layer=FUNCTION tokens=155 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py::Cache._setup_db file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py
+- rank=22 layer=FUNCTION tokens=167 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::CorrectedCommand.run file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py
+- rank=23 layer=FUNCTION tokens=66 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py::known_hosts file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py
+- rank=24 layer=FUNCTION tokens=361 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py::ssh_error file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py
+- rank=25 layer=FUNCTION tokens=306 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/fastentrypoints.py::main file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/fastentrypoints.py
+- rank=26 layer=FUNCTION tokens=99 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.is_enabled file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py
+- rank=27 layer=FUNCTION tokens=74 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py::aux file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py
+- rank=28 layer=FUNCTION tokens=82 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_help.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_help.py
+- rank=29 layer=FUNCTION tokens=65 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/shells/generic.py::Generic._get_version file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/shells/generic.py
+- rank=30 layer=FUNCTION tokens=114 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/pip_install.py::get_new_command file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/pip_install.py
+- rank=31 layer=FUNCTION tokens=99 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/git_rm_staged.py::match file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/git_rm_staged.py
+- rank=32 layer=FUNCTION tokens=156 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/ssh_known_hosts.py::side_effect file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/ssh_known_hosts.py
+- rank=33 layer=FUNCTION tokens=93 node=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/entrypoints/test_not_configured.py::usage_tracker_io file=/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/entrypoints/test_not_configured.py
+
+## context
+
+```text
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/unix.py::open_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/unix.py]
+def open_command(arg):
+    if find_executable('xdg-open'):
+        return 'xdg-open ' + arg
+    return 'open ' + arg
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/open.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/open.py]
+def get_new_command(command):
+    output = command.output.strip()
+    if is_arg_url(command):
+        yield command.script.replace('open ', 'open http://')
+    elif output.startswith('The file ') and output.endswith(' does not exist.'):
+        arg = command.script.split(' ', 1)[1]
+        for option in ['touch', 'mkdir']:
+            yield shell.and_(u'{} {}'.format(option, arg), command.script)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.is_match [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py]
+    def is_match(self, command):
+        """Returns `True` if rule matches the command.
+
+        :type command: Command
+        :rtype: bool
+
+        """
+        if command.output is None and self.requires_output:
+            return False
+
+        try:
+            with logs.debug_time(u'Trying rule: {};'.format(self.name)):
+                if self.match(command):
+                    return True
+        except Exception:
+            logs.rule_failed(self, sys.exc_info())
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.from_path [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py]
+    def from_path(cls, path):
+        """Creates rule instance from path.
+
+        :type path: pathlib.Path
+        :rtype: Rule
+
+        """
+        name = path.name[:-3]
+        if name in settings.exclude_rules:
+            logs.debug(u'Ignoring excluded rule: {}'.format(name))
+            return
+        with logs.debug_time(u'Importing rule: {};'.format(name)):
+            try:
+                rule_module = load_source(name, str(path))
+            except Exception:
+                logs.exception(u"Rule {} failed to load".format(name), sys.exc_info())
+                return
+        priority = getattr(rule_module, 'priority', DEFAULT_PRIORITY)
+        return cls(name, rule_module.match,
+                   rule_module.get_new_command,
+                   getattr(rule_module, 'enabled_by_default', True),
+                   getattr(rule_module, 'side_effect', None),
+                   settings.priority.get(name, priority),
+                   getattr(rule_module, 'requires_output', True))
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_loaded_rules [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py]
+def get_loaded_rules(rules_paths):
+    """Yields all available rules.
+
+    :type rules_paths: [Path]
+    :rtype: Iterable[Rule]
+
+    """
+    for path in rules_paths:
+        if path.name != '__init__.py':
+            rule = Rule.from_path(path)
+            if rule and rule.is_enabled:
+                yield rule
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_rules [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py]
+def get_rules():
+    """Returns all enabled rules.
+
+    :rtype: [Rule]
+
+    """
+    paths = [rule_path for path in get_rules_import_paths()
+             for rule_path in sorted(path.glob('*.py'))]
+    return sorted(get_loaded_rules(paths),
+                  key=lambda rule: rule.priority)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py::get_corrected_commands [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/corrector.py]
+def get_corrected_commands(command):
+    """Returns generator with sorted and unique corrected commands.
+
+    :type command: thefuck.types.Command
+    :rtype: Iterable[thefuck.types.CorrectedCommand]
+
+    """
+    corrected_commands = (
+        corrected for rule in get_rules()
+        if rule.is_match(command)
+        for corrected in rule.get_corrected_commands(command))
+    return organize_commands(corrected_commands)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py::match [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py]
+def match(command):
+    return re.search(MISTAKE, command.output) and re.search(FIX, command.output)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/terraform_no_command.py]
+def get_new_command(command):
+    mistake = re.search(MISTAKE, command.output).group(0)
+    fix = re.search(FIX, command.output).group(0)
+    return command.script.replace(mistake, fix)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/cargo_no_command.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/cargo_no_command.py]
+def get_new_command(command):
+    broken = command.script_parts[1]
+    fix = re.findall(r'Did you mean `([^`]*)`', command.output)[0]
+
+    return replace_argument(command.script, broken, fix)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_alias.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_alias.py]
+def get_new_command(command):
+    broken = command.script_parts[1]
+    fix = re.findall(r'Did you mean [`"](?:yarn )?([^`"]*)[`"]', command.output)[0]
+
+    return replace_argument(command.script, broken, fix)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py::replace_argument [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py]
+def replace_argument(script, from_, to):
+    """Replaces command line argument."""
+    replaced_in_the_end = re.sub(u' {}$'.format(re.escape(from_)), u' {}'.format(to),
+                                 script, count=1)
+    if replaced_in_the_end != script:
+        return replaced_in_the_end
+    else:
+        return script.replace(
+            u' {} '.format(from_), u' {} '.format(to), 1)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/logs.py::rule_failed [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/logs.py]
+def rule_failed(rule, exc_info):
+    exception(u'Rule {}'.format(rule.name), exc_info)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py::Settings._rules_from_env [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py]
+    def _rules_from_env(self, val):
+        """Transforms rules list from env-string to python."""
+        val = val.split(':')
+        if 'DEFAULT_RULES' in val:
+            val = const.DEFAULT_RULES + [rule for rule in val if rule != 'DEFAULT_RULES']
+        return val
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py::Settings._priority_from_env [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/conf.py]
+    def _priority_from_env(self, val):
+        """Gets priority pairs from env."""
+        for part in val.split(':'):
+            try:
+                rule, priority = part.split('=')
+                yield rule, int(priority)
+            except ValueError:
+                continue
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/fab_command_not_found.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/fab_command_not_found.py]
+def get_new_command(command):
+    not_found_commands = _get_between(
+        command.output, 'Warning: Command(s) not found:',
+        'Available commands:')
+    possible_commands = _get_between(
+        command.output, 'Available commands:')
+
+    script = command.script
+    for not_found in not_found_commands:
+        fix = get_closest(not_found, possible_commands)
+        script = script.replace(' {}'.format(not_found),
+                                ' {}'.format(fix))
+
+    return script
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/win32.py::open_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/system/win32.py]
+def open_command(arg):
+    return 'cmd /c start ' + arg
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py::builtins_open [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py]
+def builtins_open(mocker):
+    return mocker.patch('six.moves.builtins.open')
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_ui.py::patch [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_ui.py]
+    def patch(vals):
+        vals = iter(vals)
+        monkeypatch.setattr('thefuck.ui.get_key', lambda: next(vals))
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_corrector.py::TestGetRules.load_source [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/test_corrector.py]
+    def load_source(self, monkeypatch):
+        monkeypatch.setattr('thefuck.types.load_source',
+                            lambda x, _: Rule(x))
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py::Cache._setup_db [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/utils.py]
+    def _setup_db(self):
+        cache_dir = self._get_cache_dir()
+        cache_path = Path(cache_dir).joinpath('thefuck').as_posix()
+
+        try:
+            self._db = shelve.open(cache_path)
+        except shelve_open_error + (ImportError,):
+            # Caused when switching between Python versions
+            warn("Removing possibly out-dated cache")
+            os.remove(cache_path)
+            self._db = shelve.open(cache_path)
+
+        atexit.register(self._db.close)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::CorrectedCommand.run [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py]
+    def run(self, old_cmd):
+        """Runs command from rule for passed command.
+
+        :type old_cmd: Command
+
+        """
+        if self.side_effect:
+            self.side_effect(old_cmd, self.script)
+        if settings.alter_history:
+            shell.put_to_history(self.script)
+        # This depends on correct setting of PYTHONIOENCODING by the alias:
+        logs.debug(u'PYTHONIOENCODING: {}'.format(
+            os.environ.get('PYTHONIOENCODING', '!!not-set!!')))
+
+        sys.stdout.write(self._get_script())
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py::known_hosts [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py]
+    def known_hosts(path):
+        with open(path, 'r') as fh:
+            return fh.readlines()
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py::ssh_error [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/rules/test_ssh_known_host.py]
+def ssh_error(tmpdir):
+    path = os.path.join(str(tmpdir), 'known_hosts')
+
+    def reset(path):
+        with open(path, 'w') as fh:
+            lines = [
+                '123.234.567.890 asdjkasjdakjsd\n'
+                '98.765.432.321 ejioweojwejrosj\n'
+                '111.222.333.444 qwepoiwqepoiss\n'
+            ]
+            fh.writelines(lines)
+
+    def known_hosts(path):
+        with open(path, 'r') as fh:
+            return fh.readlines()
+
+    reset(path)
+
+    errormsg = u"""@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+It is also possible that a host key has just been changed.
+The fingerprint for the RSA key sent by the remote host is
+b6:cb:07:34:c0:a0:94:d3:0d:69:83:31:f4:c5:20:9b.
+Please contact your system administrator.
+Add correct host key in {0} to get rid of this message.
+Offending RSA key in {0}:2
+RSA host key for {1} has changed and you have requested strict checking.
+Host key verification failed.""".format(path, '98.765.432.321')
+
+    return errormsg, path, reset, known_hosts
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/fastentrypoints.py::main [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/fastentrypoints.py]
+def main():
+    import os
+    import re
+    import shutil
+    import sys
+    dests = sys.argv[1:] or ['.']
+    filename = re.sub(r'\.pyc$', '.py', __file__)
+
+    for dst in dests:
+        shutil.copy(filename, dst)
+        manifest_path = os.path.join(dst, 'MANIFEST.in')
+        setup_path = os.path.join(dst, 'setup.py')
+
+        # Insert the include statement to MANIFEST.in if not present
+        with open(manifest_path, 'a+') as manifest:
+            manifest.seek(0)
+            manifest_content = manifest.read()
+            if not 'include fastentrypoints.py' in manifest_content:
+                manifest.write(('\n' if manifest_content else '')
+                               + 'include fastentrypoints.py')
+
+        # Insert the import statement to setup.py if not present
+        with open(setup_path, 'a+') as setup:
+            setup.seek(0)
+            setup_content = setup.read()
+            if not 'import fastentrypoints' in setup_content:
+                setup.seek(0)
+                setup.truncate()
+                setup.write('import fastentrypoints\n' + setup_content)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py::Rule.is_enabled [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/types.py]
+    def is_enabled(self):
+        """Returns `True` when rule enabled.
+
+        :rtype: bool
+
+        """
+        return (
+            self.name in settings.rules
+            or self.enabled_by_default
+            and ALL_ENABLED in settings.rules
+        )
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py::aux [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/shells/conftest.py]
+    def aux(lines):
+        mock = mocker.patch('io.open')
+        mock.return_value.__enter__ \
+            .return_value.readlines.return_value = lines
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_help.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/yarn_help.py]
+def get_new_command(command):
+    url = re.findall(
+        r'Visit ([^ ]*) for documentation about this command.',
+        command.output)[0]
+
+    return open_command(url)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/shells/generic.py::Generic._get_version [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/shells/generic.py]
+    def _get_version(self):
+        """Returns the version of the current shell"""
+        return ''
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/pip_install.py::get_new_command [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/pip_install.py]
+def get_new_command(command):
+    if '--user' not in command.script:  # add --user (attempt 1)
+        return command.script.replace(' install ', ' install --user ')
+
+    return 'sudo {}'.format(command.script.replace(' --user', ''))  # since --user didn't fix things, let's try sudo (attempt 2)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/git_rm_staged.py::match [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/git_rm_staged.py]
+def match(command):
+    return (' rm ' in command.script and
+            'error: the following file has changes staged in the index' in command.output and
+            'use --cached to keep the file, or -f to force removal' in command.output)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/ssh_known_hosts.py::side_effect [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/thefuck/rules/ssh_known_hosts.py]
+def side_effect(old_cmd, command):
+    offending_pattern = re.compile(
+        r'(?:Offending (?:key for IP|\S+ key)|Matching host key) in ([^:]+):(\d+)',
+        re.MULTILINE)
+    offending = offending_pattern.findall(old_cmd.output)
+    for filepath, lineno in offending:
+        with open(filepath, 'r') as fh:
+            lines = fh.readlines()
+            del lines[int(lineno) - 1]
+        with open(filepath, 'w') as fh:
+            fh.writelines(lines)
+
+# /Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/entrypoints/test_not_configured.py::usage_tracker_io [/Users/xxvirusxx/PY/CodegraphTACM/thefuck/tests/entrypoints/test_not_configured.py]
+def usage_tracker_io(usage_tracker):
+    io = StringIO()
+    usage_tracker.return_value \
+                 .open.return_value \
+                 .__enter__.return_value = io
+    return io
+```
