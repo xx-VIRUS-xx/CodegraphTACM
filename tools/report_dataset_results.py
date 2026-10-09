@@ -10,8 +10,8 @@ It reports:
   - overall any-pass rates on the filtered benchmark slice
 
 Usage:
-    python3 codegraph-tacm/tools/report_dataset_results.py
-    python3 codegraph-tacm/tools/report_dataset_results.py --project thefuck
+    python3 tools/report_dataset_results.py
+    python3 tools/report_dataset_results.py --project thefuck
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from agent_harness import load_all_results  # noqa: E402
 
 
-DEFAULT_DATASET = ROOT / "codegraph-tacm" / "datasets" / "bugsinpy_code_grounded_benchmark_ready.jsonl"
+DEFAULT_DATASET = ROOT / "datasets" / "bugsinpy_code_grounded_benchmark_ready.jsonl"
 DEFAULT_LABELS = {"code_explicit", "semantic_code"}
 
 

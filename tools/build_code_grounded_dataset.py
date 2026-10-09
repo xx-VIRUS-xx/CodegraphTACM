@@ -10,8 +10,8 @@ The goal is not to mutate TACM around noisy issue text, but to produce a local
 benchmark slice aligned with what TACM is actually built to do: code retrieval.
 
 Usage:
-    python3 codegraph-tacm/tools/build_code_grounded_dataset.py
-    python3 codegraph-tacm/tools/build_code_grounded_dataset.py --projects thefuck scrapy
+    python3 tools/build_code_grounded_dataset.py
+    python3 tools/build_code_grounded_dataset.py --projects thefuck scrapy
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import bench_v2  # noqa: E402
 
 
-OUT_DIR = ROOT / "codegraph-tacm" / "datasets"
+OUT_DIR = ROOT / "datasets"
 
 STOPWORDS = {
     "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "by",

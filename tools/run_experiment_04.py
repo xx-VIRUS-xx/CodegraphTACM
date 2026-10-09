@@ -10,8 +10,8 @@ Outputs:
   - aggregate JSON summary
 
 Usage:
-    python3 codegraph-tacm/tools/run_experiment_04.py
-    python3 codegraph-tacm/tools/run_experiment_04.py --project thefuck scrapy
+    python3 tools/run_experiment_04.py
+    python3 tools/run_experiment_04.py --project thefuck scrapy
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import bench_v2  # noqa: E402
@@ -46,8 +46,8 @@ from context_providers import (  # noqa: E402
 )
 
 
-DEFAULT_DATASET = ROOT / "codegraph-tacm" / "datasets" / "bugsinpy_code_grounded_benchmark_ready.jsonl"
-DEFAULT_OUT_DIR = ROOT / "codegraph-tacm" / "experiment_04_outputs"
+DEFAULT_DATASET = ROOT / "datasets" / "bugsinpy_code_grounded_benchmark_ready.jsonl"
+DEFAULT_OUT_DIR = ROOT / "results" / "experiment_04"
 DEFAULT_CONDITIONS = [
     "bm25",
     "minilm",
