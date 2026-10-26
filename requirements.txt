@@ -1,0 +1,14 @@
+# Unpinned: versions were not recorded for the original runs.
+# Pin them (pip freeze) before treating results as reproducible.
+numpy
+torch
+transformers
+sentence-transformers
+rank_bm25
+neo4j
+flask
+openai
+anthropic
+pytest
+# External dependency, not on this list by name; install separately:
+#   code_review_graph
