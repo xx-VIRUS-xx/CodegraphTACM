@@ -71,13 +71,14 @@ python3 tools/report_dataset_results.py
 - Models and libraries: all-MiniLM-L6-v2 (Hugging Face), codesearch-distilroberta-base (the `codesearch` condition), gpt-4o-mini for the agent and reranker conditions.
 - The `code_review_graph` package is an external dependency; confirm its license before redistributing anything derived from it.
 
-## Limitations and next steps
+## Next steps
 
-- Sample sizes are small (n between 18 and 47 per condition); several differences, including `tacm-ppr` versus hybrid in Experiment 05, are inside the confidence intervals.
-- Experiment 04's pandas results are flagged in the results doc as low quality, and keras was excluded for the wrong repository version.
-- The engine and harness scripts sit at the repository root and are not packaged; there is no `pyproject.toml` or pinned requirements.
-- `results/experiment_04` contains absolute paths from the original machine inside the dumped contexts and results.
-- Some docs under `docs/` still use the older nested paths when describing where files live.
-- `agent_harness.py`, `bench_v2.py`, the dashboard and the regression tests still add `archive/pre-research` to `sys.path`; the entry is harmless now that `tacm/` is at the root.
-- The v1 benchmark scripts in `benchmarks/` expect target repos next to them and were already out of step with their original layout.
-- No LICENSE has been chosen for the project.
+- Scale the evaluation: extend the SWE-bench Lite and BugsInPy runs beyond the current 18-47 instances per condition to tighten the confidence intervals.
+- Re-run Experiment 04 on pandas and keras with corrected dataset and repository versions.
+- Test session-level subgraph retrieval (experiments/DESIGN_07_SESSION_SUBGRAPHS.md) and run the planned ablations (experiments/ABLATION_PLAN.md).
+- Package the engine and harnesses with a pyproject.toml and pinned requirements.
+- Make results portable: use repo-relative paths in results/experiment_04 and align docs/ with the current layout.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
